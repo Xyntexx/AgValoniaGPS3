@@ -1,0 +1,144 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AgValoniaGPS.Desktop.Views"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="500"
+        x:Class="AgValoniaGPS.Desktop.Views.FieldSelectionDialog"
+        Title="Select Field"
+        Width="600" Height="500"
+        WindowStartupLocation="CenterOwner"
+        Background="#2C3E50"
+        CanResize="True">
+
+    <Window.Styles>
+        <!-- Modern Panel Style -->
+        <Style Selector="Border.Panel">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="15"/>
+        </Style>
+
+        <!-- Modern Button Style -->
+        <Style Selector="Button.ModernButton">
+            <Setter Property="Background" Value="#3498DB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.ModernButton:pointerover">
+            <Setter Property="Background" Value="#2980B9"/>
+        </Style>
+        <Style Selector="Button.ModernButton:pressed">
+            <Setter Property="Background" Value="#21618C"/>
+        </Style>
+
+        <!-- Danger Button Style -->
+        <Style Selector="Button.DangerButton">
+            <Setter Property="Background" Value="#E74C3C"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.DangerButton:pointerover">
+            <Setter Property="Background" Value="#C0392B"/>
+        </Style>
+        <Style Selector="Button.DangerButton:pressed">
+            <Setter Property="Background" Value="#922B21"/>
+        </Style>
+
+        <!-- Secondary Button Style -->
+        <Style Selector="Button.SecondaryButton">
+            <Setter Property="Background" Value="#5D6D7E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.SecondaryButton:pointerover">
+            <Setter Property="Background" Value="#4A5A6A"/>
+        </Style>
+        <Style Selector="Button.SecondaryButton:pressed">
+            <Setter Property="Background" Value="#3A4A5A"/>
+        </Style>
+
+        <!-- Header Style -->
+        <Style Selector="TextBlock.Header">
+            <Setter Property="Foreground" Value="#3498DB"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,15"/>
+        </Style>
+
+        <!-- ListBox Styling -->
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="#1E2930"/>
+            <Setter Property="BorderBrush" Value="#4A5F73"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover">
+            <Setter Property="Background" Value="#2C3E50"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Background" Value="#3498DB"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="20">
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Classes="Header" Text="Select Field to Open"/>
+
+        <!-- Column Headers -->
+        <Border Grid.Row="1" Background="#34495E" CornerRadius="4,4,0,0" Padding="12,8" Margin="0,0,0,0">
+            <Grid ColumnDefinitions="*,100,100">
+                <TextBlock Grid.Column="0" Text="Field Name" Foreground="#BDC3C7" FontWeight="SemiBold"/>
+                <TextBlock Grid.Column="1" Text="Distance" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Right"/>
+                <TextBlock Grid.Column="2" Text="Area (ha)" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <!-- Fields ListBox -->
+        <ListBox x:Name="FieldsListBox"
+                 Grid.Row="2"
+                 SelectionMode="Single">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:FieldInfo">
+                    <Grid ColumnDefinitions="*,100,100">
+                        <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="White" FontSize="14"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Distance, StringFormat='{}{0:F2}'}" Foreground="#BDC3C7" TextAlignment="Right" FontSize="14"/>
+                        <TextBlock Grid.Column="2" Text="{Binding Area, StringFormat='{}{0:F1}'}" Foreground="#BDC3C7" TextAlignment="Right" FontSize="14"/>
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Action Buttons -->
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,*,Auto,Auto" Margin="0,15,0,0">
+            <!-- Delete Field Button -->
+            <Button Grid.Column="0" Classes="DangerButton" Content="Delete" Click="BtnDeleteField_Click"/>
+
+            <!-- Sort Button -->
+            <Button Grid.Column="1" Classes="SecondaryButton" Content="Sort A-Z" Click="BtnSort_Click" Margin="10,0,0,0"/>
+
+            <!-- Spacer -->
+            <Border Grid.Column="2"/>
+
+            <!-- Cancel Button -->
+            <Button Grid.Column="3" Classes="SecondaryButton" Content="Cancel" Click="BtnCancel_Click"/>
+
+            <!-- Open Button -->
+            <Button Grid.Column="4" Classes="ModernButton" Content="Open Field" Click="BtnOpen_Click" Margin="10,0,0,0"/>
+        </Grid>
+    </Grid>
+</Window>

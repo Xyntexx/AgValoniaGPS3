@@ -1,0 +1,1037 @@
+using System;
+using System.Collections.Generic;
+using System.Windows.Input;
+using ReactiveUI;
+using AgValoniaGPS.Models;
+using AgValoniaGPS.Services;
+using AgValoniaGPS.Services.Interfaces;
+using AgValoniaGPS.Services.Interfaces;
+using AgValoniaGPS.Models.GPS;
+using Avalonia.Threading;
+
+namespace AgValoniaGPS.ViewModels;
+
+public class MainViewModel : ReactiveObject
+{
+    private readonly IUdpCommunicationService _udpService;
+    private readonly AgValoniaGPS.Services.Interfaces.IGpsService _gpsService;
+    private readonly IFieldService _fieldService;
+    private readonly IGuidanceService _guidanceService;
+    private readonly INtripClientService _ntripService;
+    private readonly AgValoniaGPS.Services.Interfaces.IDisplaySettingsService _displaySettings;
+    private readonly AgValoniaGPS.Services.Interfaces.IFieldStatisticsService _fieldStatistics;
+    private readonly AgValoniaGPS.Services.Interfaces.IGpsSimulationService _simulatorService;
+    private readonly VehicleConfiguration _vehicleConfig;
+    private readonly ISettingsService _settingsService;
+    private readonly NmeaParserService _nmeaParser;
+    private readonly DispatcherTimer _simulatorTimer;
+    private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
+
+    private string _statusMessage = "Starting...";
+    private double _latitude;
+    private double _longitude;
+    private double _speed;
+    private int _satelliteCount;
+    private string _fixQuality = "No Fix";
+    private string _networkStatus = "Disconnected";
+    // Hello status (connection health)
+    private bool _isAutoSteerHelloOk;
+    private bool _isMachineHelloOk;
+    private bool _isImuHelloOk;
+    private bool _isGpsHelloOk;
+
+    // Data status (data flow)
+    private bool _isAutoSteerDataOk;
+    private bool _isMachineDataOk;
+    private bool _isImuDataOk;
+    private bool _isGpsDataOk;
+    private string _debugLog = "";
+    private double _easting;
+    private double _northing;
+    private double _heading;
+
+    // Field properties
+    private Field? _activeField;
+    private string _fieldsRootDirectory = string.Empty;
+
+    public MainViewModel(
+        IUdpCommunicationService udpService,
+        AgValoniaGPS.Services.Interfaces.IGpsService gpsService,
+        IFieldService fieldService,
+        IGuidanceService guidanceService,
+        INtripClientService ntripService,
+        AgValoniaGPS.Services.Interfaces.IDisplaySettingsService displaySettings,
+        AgValoniaGPS.Services.Interfaces.IFieldStatisticsService fieldStatistics,
+        AgValoniaGPS.Services.Interfaces.IGpsSimulationService simulatorService,
+        VehicleConfiguration vehicleConfig,
+        ISettingsService settingsService)
+    {
+        _udpService = udpService;
+        _gpsService = gpsService;
+        _fieldService = fieldService;
+        _guidanceService = guidanceService;
+        _ntripService = ntripService;
+        _displaySettings = displaySettings;
+        _fieldStatistics = fieldStatistics;
+        _simulatorService = simulatorService;
+        _vehicleConfig = vehicleConfig;
+        _settingsService = settingsService;
+        _nmeaParser = new NmeaParserService(gpsService);
+
+        // Subscribe to events
+        _gpsService.GpsDataUpdated += OnGpsDataUpdated;
+        _udpService.DataReceived += OnUdpDataReceived;
+        _udpService.ModuleConnectionChanged += OnModuleConnectionChanged;
+        _ntripService.ConnectionStatusChanged += OnNtripConnectionChanged;
+        _ntripService.RtcmDataReceived += OnRtcmDataReceived;
+        _fieldService.ActiveFieldChanged += OnActiveFieldChanged;
+        _simulatorService.GpsDataUpdated += OnSimulatorGpsDataUpdated;
+
+        // Note: NOT subscribing to DisplaySettings events - using direct property access instead
+        // to avoid threading issues with ReactiveUI
+
+        // Initialize simulator service with default position (will be updated when GPS gets fix)
+        _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(40.7128, -74.0060)); // Default to NYC coordinates
+        _simulatorService.StepDistance = 0; // Stationary initially
+
+        // Create simulator timer (100ms tick rate, matching WinForms implementation)
+        _simulatorTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        _simulatorTimer.Tick += OnSimulatorTick;
+
+        // Initialize commands immediately (with MainThreadScheduler they're thread-safe)
+        InitializeCommands();
+
+        // Load display settings first, then restore our app settings on top
+        // This ensures AppSettings takes precedence over DisplaySettings
+        Dispatcher.UIThread.Post(() =>
+        {
+            _displaySettings.LoadSettings();
+            RestoreSettings();
+        }, DispatcherPriority.Background);
+
+        // Start UDP communication
+        InitializeAsync();
+    }
+
+    private void RestoreSettings()
+    {
+        var settings = _settingsService.Settings;
+
+        // Restore NTRIP settings
+        NtripCasterAddress = settings.NtripCasterIp;
+        NtripCasterPort = settings.NtripCasterPort;
+        NtripMountPoint = settings.NtripMountPoint;
+        NtripUsername = settings.NtripUsername;
+        NtripPassword = settings.NtripPassword;
+
+        // Restore UI state (through _displaySettings service)
+        _displaySettings.IsGridOn = settings.GridVisible;
+
+        // IMPORTANT: Notify bindings that IsGridOn changed
+        // (setting _displaySettings directly doesn't trigger property change notification)
+        this.RaisePropertyChanged(nameof(IsGridOn));
+
+        // Restore simulator settings
+        if (settings.SimulatorEnabled)
+        {
+            // Initialize simulator with saved coordinates
+            _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(
+                settings.SimulatorLatitude,
+                settings.SimulatorLongitude));
+            _simulatorService.StepDistance = settings.SimulatorSpeed;
+            Console.WriteLine($"  Restored simulator: {settings.SimulatorLatitude},{settings.SimulatorLongitude}");
+        }
+    }
+
+    public async System.Threading.Tasks.Task ConnectToNtripAsync()
+    {
+        try
+        {
+            var config = new NtripConfiguration
+            {
+                CasterAddress = NtripCasterAddress,
+                CasterPort = NtripCasterPort,
+                MountPoint = NtripMountPoint,
+                Username = NtripUsername,
+                Password = NtripPassword,
+                SubnetAddress = "192.168.5",
+                UdpForwardPort = 2233,
+                GgaIntervalSeconds = 10,
+                UseManualPosition = false
+            };
+
+            await _ntripService.ConnectAsync(config);
+        }
+        catch (Exception ex)
+        {
+            NtripStatus = $"Error: {ex.Message}";
+        }
+    }
+
+    public async System.Threading.Tasks.Task DisconnectFromNtripAsync()
+    {
+        await _ntripService.DisconnectAsync();
+    }
+
+    private async void InitializeAsync()
+    {
+        try
+        {
+            await _udpService.StartAsync();
+            NetworkStatus = $"UDP Connected: {_udpService.LocalIPAddress}";
+            StatusMessage = "Ready - Waiting for modules...";
+
+            // Start sending hello packets every second
+            StartHelloTimer();
+        }
+        catch (Exception ex)
+        {
+            NetworkStatus = $"UDP Error: {ex.Message}";
+            StatusMessage = "Network error";
+        }
+    }
+
+    private async void StartHelloTimer()
+    {
+        while (_udpService.IsConnected)
+        {
+            // Send hello packet every second
+            _udpService.SendHelloPacket();
+
+            // Check module status using appropriate method for each:
+            // - AutoSteer: Data flow (sends PGN 250/253 regularly)
+            // - Machine: Hello only (receive-only, no data sent)
+            // - IMU: Hello only (only sends when active)
+            // - GPS: Data flow (sends NMEA regularly)
+
+            var steerOk = _udpService.IsModuleDataOk(ModuleType.AutoSteer);
+            var machineOk = _udpService.IsModuleHelloOk(ModuleType.Machine);
+            var imuOk = _udpService.IsModuleHelloOk(ModuleType.IMU);
+            var gpsOk = _gpsService.IsGpsDataOk();
+
+            // Update UI properties
+            IsAutoSteerDataOk = steerOk;
+            IsMachineDataOk = machineOk;
+            IsImuDataOk = imuOk;
+            IsGpsDataOk = gpsOk;
+
+            if (!gpsOk)
+            {
+                StatusMessage = "GPS Timeout";
+                FixQuality = "No Fix";
+            }
+            else
+            {
+                UpdateStatusMessage();
+            }
+
+            await System.Threading.Tasks.Task.Delay(100); // Check every 100ms for fast response
+        }
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set => this.RaiseAndSetIfChanged(ref _statusMessage, value);
+    }
+
+    public double Latitude
+    {
+        get => _latitude;
+        set => this.RaiseAndSetIfChanged(ref _latitude, value);
+    }
+
+    public double Longitude
+    {
+        get => _longitude;
+        set => this.RaiseAndSetIfChanged(ref _longitude, value);
+    }
+
+    public double Speed
+    {
+        get => _speed;
+        set => this.RaiseAndSetIfChanged(ref _speed, value);
+    }
+
+    public int SatelliteCount
+    {
+        get => _satelliteCount;
+        set => this.RaiseAndSetIfChanged(ref _satelliteCount, value);
+    }
+
+    public string FixQuality
+    {
+        get => _fixQuality;
+        set => this.RaiseAndSetIfChanged(ref _fixQuality, value);
+    }
+
+    public string NetworkStatus
+    {
+        get => _networkStatus;
+        set => this.RaiseAndSetIfChanged(ref _networkStatus, value);
+    }
+
+    // AutoSteer Hello and Data properties
+    public bool IsAutoSteerHelloOk
+    {
+        get => _isAutoSteerHelloOk;
+        set => this.RaiseAndSetIfChanged(ref _isAutoSteerHelloOk, value);
+    }
+
+    public bool IsAutoSteerDataOk
+    {
+        get => _isAutoSteerDataOk;
+        set => this.RaiseAndSetIfChanged(ref _isAutoSteerDataOk, value);
+    }
+
+    // Machine Hello and Data properties
+    public bool IsMachineHelloOk
+    {
+        get => _isMachineHelloOk;
+        set => this.RaiseAndSetIfChanged(ref _isMachineHelloOk, value);
+    }
+
+    public bool IsMachineDataOk
+    {
+        get => _isMachineDataOk;
+        set => this.RaiseAndSetIfChanged(ref _isMachineDataOk, value);
+    }
+
+    // IMU Hello and Data properties
+    public bool IsImuHelloOk
+    {
+        get => _isImuHelloOk;
+        set => this.RaiseAndSetIfChanged(ref _isImuHelloOk, value);
+    }
+
+    public bool IsImuDataOk
+    {
+        get => _isImuDataOk;
+        set => this.RaiseAndSetIfChanged(ref _isImuDataOk, value);
+    }
+
+    // GPS Hello and Data properties (GPS doesn't have hello, just data from NMEA)
+    public bool IsGpsDataOk
+    {
+        get => _isGpsDataOk;
+        set => this.RaiseAndSetIfChanged(ref _isGpsDataOk, value);
+    }
+
+    // NTRIP properties
+    private bool _isNtripConnected;
+    private string _ntripStatus = "Not Connected";
+    private ulong _ntripBytesReceived;
+    private string _ntripCasterAddress = "rtk2go.com";
+    private int _ntripCasterPort = 2101;
+    private string _ntripMountPoint = "";
+    private string _ntripUsername = "";
+    private string _ntripPassword = "";
+
+    public bool IsNtripConnected
+    {
+        get => _isNtripConnected;
+        set => this.RaiseAndSetIfChanged(ref _isNtripConnected, value);
+    }
+
+    public string NtripStatus
+    {
+        get => _ntripStatus;
+        set => this.RaiseAndSetIfChanged(ref _ntripStatus, value);
+    }
+
+    public string NtripBytesReceived
+    {
+        get => $"{(_ntripBytesReceived / 1024):N0} KB";
+    }
+
+    public string NtripCasterAddress
+    {
+        get => _ntripCasterAddress;
+        set => this.RaiseAndSetIfChanged(ref _ntripCasterAddress, value);
+    }
+
+    public int NtripCasterPort
+    {
+        get => _ntripCasterPort;
+        set => this.RaiseAndSetIfChanged(ref _ntripCasterPort, value);
+    }
+
+    public string NtripMountPoint
+    {
+        get => _ntripMountPoint;
+        set => this.RaiseAndSetIfChanged(ref _ntripMountPoint, value);
+    }
+
+    public string NtripUsername
+    {
+        get => _ntripUsername;
+        set => this.RaiseAndSetIfChanged(ref _ntripUsername, value);
+    }
+
+    public string NtripPassword
+    {
+        get => _ntripPassword;
+        set => this.RaiseAndSetIfChanged(ref _ntripPassword, value);
+    }
+
+    public string DebugLog
+    {
+        get => _debugLog;
+        set => this.RaiseAndSetIfChanged(ref _debugLog, value);
+    }
+
+    public double Easting
+    {
+        get => _easting;
+        set => this.RaiseAndSetIfChanged(ref _easting, value);
+    }
+
+    public double Northing
+    {
+        get => _northing;
+        set => this.RaiseAndSetIfChanged(ref _northing, value);
+    }
+
+    public double Heading
+    {
+        get => _heading;
+        set => this.RaiseAndSetIfChanged(ref _heading, value);
+    }
+
+    private void OnGpsDataUpdated(object? sender, AgValoniaGPS.Models.GpsData data)
+    {
+        // Marshal to UI thread (use Invoke for synchronous execution to avoid modal dialog issues)
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            // Already on UI thread, execute directly
+            UpdateGpsProperties(data);
+        }
+        else
+        {
+            // Not on UI thread, invoke synchronously
+            Avalonia.Threading.Dispatcher.UIThread.Invoke(() => UpdateGpsProperties(data));
+        }
+    }
+
+    private void UpdateGpsProperties(AgValoniaGPS.Models.GpsData data)
+    {
+        Latitude = data.CurrentPosition.Latitude;
+        Longitude = data.CurrentPosition.Longitude;
+        Speed = data.CurrentPosition.Speed;
+        SatelliteCount = data.SatellitesInUse;
+        FixQuality = GetFixQualityString(data.FixQuality);
+        StatusMessage = data.IsValid ? "GPS Active" : "Waiting for GPS";
+
+        // Update UTM coordinates and heading for map rendering
+        Easting = data.CurrentPosition.Easting;
+        Northing = data.CurrentPosition.Northing;
+        Heading = data.CurrentPosition.Heading;
+    }
+
+    // Simulator event handlers
+    private void OnSimulatorTick(object? sender, EventArgs e)
+    {
+        // Call simulator Tick with current steer angle
+        _simulatorService.Tick(SimulatorSteerAngle);
+    }
+
+    private void OnSimulatorGpsDataUpdated(object? sender, GpsSimulationEventArgs e)
+    {
+        var simulatedData = e.Data;
+
+        // Create LocalPlane if not yet created (using simulator's initial position as origin)
+        if (_simulatorLocalPlane == null)
+        {
+            var sharedProps = new AgValoniaGPS.Models.SharedFieldProperties();
+            _simulatorLocalPlane = new AgValoniaGPS.Models.LocalPlane(simulatedData.Position, sharedProps);
+        }
+
+        // Convert WGS84 to local coordinates (Northing/Easting)
+        var localCoord = _simulatorLocalPlane.ConvertWgs84ToGeoCoord(simulatedData.Position);
+
+        // Build Position object with both WGS84 and UTM coordinates
+        var position = new AgValoniaGPS.Models.Position
+        {
+            Latitude = simulatedData.Position.Latitude,
+            Longitude = simulatedData.Position.Longitude,
+            Altitude = simulatedData.Altitude,
+            Easting = localCoord.Easting,
+            Northing = localCoord.Northing,
+            Heading = simulatedData.HeadingDegrees,
+            Speed = simulatedData.SpeedKmh / 3.6  // Convert km/h to m/s
+        };
+
+        // Build GpsData object
+        var gpsData = new AgValoniaGPS.Models.GpsData
+        {
+            CurrentPosition = position,
+            FixQuality = 4,  // RTK Fixed
+            SatellitesInUse = simulatedData.SatellitesTracked,
+            Hdop = simulatedData.Hdop,
+            DifferentialAge = 0.0,
+            Timestamp = DateTime.Now
+        };
+
+        // Directly update GPS service (bypasses NMEA parsing like WinForms version does)
+        _gpsService.UpdateGpsData(gpsData);
+    }
+
+    private void OnUdpDataReceived(object? sender, UdpDataReceivedEventArgs e)
+    {
+        var now = DateTime.Now;
+        var packetAge = (now - e.Timestamp).TotalMilliseconds;
+
+        // Handle different message types
+        if (e.PGN == 0)
+        {
+            // NMEA text sentence
+            try
+            {
+                string sentence = System.Text.Encoding.ASCII.GetString(e.Data);
+                _nmeaParser.ParseSentence(sentence);
+            }
+            catch { }
+        }
+        else
+        {
+            // Binary PGN message - log it with age to detect buffering
+            DebugLog = $"PGN: {e.PGN} (0x{e.PGN:X2}) @ {e.Timestamp:HH:mm:ss.fff} (age: {packetAge:F0}ms)";
+
+            switch (e.PGN)
+            {
+                case PgnNumbers.HELLO_FROM_AUTOSTEER:
+                    // AutoSteer module is alive
+                    break;
+
+                case PgnNumbers.HELLO_FROM_MACHINE:
+                    // Machine module is alive
+                    break;
+
+                case PgnNumbers.HELLO_FROM_IMU:
+                    // IMU module is alive
+                    break;
+
+                // TODO: Add more PGN handlers as needed
+            }
+        }
+    }
+
+    private void OnModuleConnectionChanged(object? sender, ModuleConnectionEventArgs e)
+    {
+        // This event is no longer used - status is polled every 100ms
+    }
+
+    private void OnNtripConnectionChanged(object? sender, NtripConnectionEventArgs e)
+    {
+        // Marshal to UI thread (use Invoke for synchronous execution to avoid modal dialog issues)
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            UpdateNtripConnectionProperties(e);
+        }
+        else
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Invoke(() => UpdateNtripConnectionProperties(e));
+        }
+    }
+
+    private void UpdateNtripConnectionProperties(NtripConnectionEventArgs e)
+    {
+        IsNtripConnected = e.IsConnected;
+        NtripStatus = e.Message ?? (e.IsConnected ? "Connected" : "Not Connected");
+    }
+
+    private void OnRtcmDataReceived(object? sender, RtcmDataReceivedEventArgs e)
+    {
+        // Marshal to UI thread (use Invoke for synchronous execution to avoid modal dialog issues)
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            UpdateNtripDataProperties();
+        }
+        else
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Invoke(() => UpdateNtripDataProperties());
+        }
+    }
+
+    private void UpdateNtripDataProperties()
+    {
+        _ntripBytesReceived = _ntripService.TotalBytesReceived;
+        this.RaisePropertyChanged(nameof(NtripBytesReceived));
+    }
+
+    private void UpdateStatusMessage()
+    {
+        int connectedCount = 0;
+        if (IsAutoSteerDataOk) connectedCount++;
+        if (IsMachineDataOk) connectedCount++;
+        if (IsImuDataOk) connectedCount++;
+
+        StatusMessage = connectedCount > 0
+            ? $"{connectedCount} module(s) active"
+            : "Waiting for modules...";
+    }
+
+    private string GetFixQualityString(int fixQuality) => fixQuality switch
+    {
+        0 => "No Fix",
+        1 => "GPS Fix",
+        2 => "DGPS Fix",
+        4 => "RTK Fixed",
+        5 => "RTK Float",
+        _ => "Unknown"
+    };
+
+    // Field management properties
+    public Field? ActiveField
+    {
+        get => _activeField;
+        set => this.RaiseAndSetIfChanged(ref _activeField, value);
+    }
+
+    public string FieldsRootDirectory
+    {
+        get => _fieldsRootDirectory;
+        set => this.RaiseAndSetIfChanged(ref _fieldsRootDirectory, value);
+    }
+
+    public string? ActiveFieldName => ActiveField?.Name;
+    public double? ActiveFieldArea => ActiveField?.TotalArea;
+
+    // AOG_Dev services - expose for UI/control access
+    public VehicleConfiguration VehicleConfig => _vehicleConfig;
+    public AgValoniaGPS.Services.Interfaces.IFieldStatisticsService FieldStatistics => _fieldStatistics;
+
+    // Field statistics properties for UI binding
+    public string WorkedAreaDisplay => FormatArea(_fieldStatistics.Statistics.WorkedAreaTotal);
+    public string BoundaryAreaDisplay => FormatArea(_fieldStatistics.Statistics.AreaOuterBoundary);
+    public double RemainingPercent => _fieldStatistics.Statistics.AreaBoundaryOuterLessInner > 0
+        ? ((_fieldStatistics.Statistics.AreaBoundaryOuterLessInner - _fieldStatistics.Statistics.WorkedAreaTotal) * 100 / _fieldStatistics.Statistics.AreaBoundaryOuterLessInner)
+        : 0;
+
+    // Helper method to format area
+    private string FormatArea(double squareMeters)
+    {
+        // Convert to hectares
+        double hectares = squareMeters * 0.0001;
+        return $"{hectares:F2} ha";
+    }
+
+    private void OnActiveFieldChanged(object? sender, Field? field)
+    {
+        // Marshal to UI thread
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            UpdateActiveField(field);
+        }
+        else
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Invoke(() => UpdateActiveField(field));
+        }
+    }
+
+    private void UpdateActiveField(Field? field)
+    {
+        ActiveField = field;
+        this.RaisePropertyChanged(nameof(ActiveFieldName));
+        this.RaisePropertyChanged(nameof(ActiveFieldArea));
+
+        // Update field statistics service with new boundary
+        if (field?.Boundary != null)
+        {
+            // Calculate boundary area and pass as list (outer boundary only for now)
+            var boundaryAreas = new List<double> { field.TotalArea };
+            _fieldStatistics.UpdateBoundaryAreas(boundaryAreas);
+            this.RaisePropertyChanged(nameof(BoundaryAreaDisplay));
+            this.RaisePropertyChanged(nameof(WorkedAreaDisplay));
+            this.RaisePropertyChanged(nameof(RemainingPercent));
+        }
+    }
+
+    // ========== View Settings ==========
+
+    private bool _isViewSettingsPanelVisible;
+    public bool IsViewSettingsPanelVisible
+    {
+        get => _isViewSettingsPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isViewSettingsPanelVisible, value);
+    }
+
+    private bool _isFileMenuPanelVisible;
+    public bool IsFileMenuPanelVisible
+    {
+        get => _isFileMenuPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isFileMenuPanelVisible, value);
+    }
+
+    private bool _isToolsPanelVisible;
+    public bool IsToolsPanelVisible
+    {
+        get => _isToolsPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isToolsPanelVisible, value);
+    }
+
+    private bool _isConfigurationPanelVisible;
+    public bool IsConfigurationPanelVisible
+    {
+        get => _isConfigurationPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isConfigurationPanelVisible, value);
+    }
+
+    private bool _isJobMenuPanelVisible;
+    public bool IsJobMenuPanelVisible
+    {
+        get => _isJobMenuPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isJobMenuPanelVisible, value);
+    }
+
+    private bool _isFieldToolsPanelVisible;
+    public bool IsFieldToolsPanelVisible
+    {
+        get => _isFieldToolsPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isFieldToolsPanelVisible, value);
+    }
+
+    private bool _isSimulatorPanelVisible;
+    public bool IsSimulatorPanelVisible
+    {
+        get => _isSimulatorPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isSimulatorPanelVisible, value);
+    }
+
+    private bool _isBoundaryPanelVisible;
+    public bool IsBoundaryPanelVisible
+    {
+        get => _isBoundaryPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isBoundaryPanelVisible, value);
+    }
+
+    // Field management properties
+    private bool _isFieldOpen;
+    public bool IsFieldOpen
+    {
+        get => _isFieldOpen;
+        set => this.RaiseAndSetIfChanged(ref _isFieldOpen, value);
+    }
+
+    private string _currentFieldName = string.Empty;
+    public string CurrentFieldName
+    {
+        get => _currentFieldName;
+        set => this.RaiseAndSetIfChanged(ref _currentFieldName, value);
+    }
+
+    // Simulator properties
+    private bool _isSimulatorEnabled;
+    public bool IsSimulatorEnabled
+    {
+        get => _isSimulatorEnabled;
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isSimulatorEnabled, value))
+            {
+                // Save to settings
+                _settingsService.Settings.SimulatorEnabled = value;
+                _settingsService.Save();
+
+                // Start or stop simulator timer based on enabled state
+                if (value)
+                {
+                    _simulatorTimer.Start();
+                    StatusMessage = "Simulator ON";
+                }
+                else
+                {
+                    _simulatorTimer.Stop();
+                    StatusMessage = "Simulator OFF";
+                }
+            }
+        }
+    }
+
+    private double _simulatorSteerAngle;
+    public double SimulatorSteerAngle
+    {
+        get => _simulatorSteerAngle;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _simulatorSteerAngle, value);
+            this.RaisePropertyChanged(nameof(SimulatorSteerAngleDisplay)); // Notify display property
+            if (_isSimulatorEnabled)
+            {
+                _simulatorService.SteerAngle = value;
+            }
+        }
+    }
+
+    public string SimulatorSteerAngleDisplay => $"Steer Angle: {_simulatorSteerAngle:F1}°";
+
+    /// <summary>
+    /// Set new starting coordinates for the simulator
+    /// </summary>
+    public void SetSimulatorCoordinates(double latitude, double longitude)
+    {
+        // Reinitialize simulator with new coordinates
+        _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(latitude, longitude));
+        _simulatorService.StepDistance = 0;
+
+        // Clear LocalPlane so it will be recreated with new origin on next GPS data update
+        _simulatorLocalPlane = null;
+
+        // Reset steering
+        SimulatorSteerAngle = 0;
+
+        // Save coordinates to settings so they persist
+        _settingsService.Settings.SimulatorLatitude = latitude;
+        _settingsService.Settings.SimulatorLongitude = longitude;
+        _settingsService.Save();
+
+        StatusMessage = $"Simulator reset to {latitude:F7}, {longitude:F7}";
+    }
+
+    /// <summary>
+    /// Get current simulator position
+    /// </summary>
+    public AgValoniaGPS.Models.Wgs84 GetSimulatorPosition()
+    {
+        return _simulatorService.CurrentPosition;
+    }
+
+    // Navigation settings properties (forwarded from service)
+    public bool IsGridOn
+    {
+        get => _displaySettings.IsGridOn;
+        set
+        {
+            _displaySettings.IsGridOn = value;
+            this.RaisePropertyChanged();
+        }
+    }
+
+    public bool IsDayMode
+    {
+        get => _displaySettings.IsDayMode;
+        set
+        {
+            _displaySettings.IsDayMode = value;
+            this.RaisePropertyChanged();
+        }
+    }
+
+    public double CameraPitch
+    {
+        get => _displaySettings.CameraPitch;
+        set
+        {
+            _displaySettings.CameraPitch = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(Is2DMode));
+        }
+    }
+
+    public bool Is2DMode
+    {
+        get => _displaySettings.Is2DMode;
+        set
+        {
+            _displaySettings.Is2DMode = value;
+            this.RaisePropertyChanged();
+        }
+    }
+
+    public bool IsNorthUp
+    {
+        get => _displaySettings.IsNorthUp;
+        set
+        {
+            _displaySettings.IsNorthUp = value;
+            this.RaisePropertyChanged();
+        }
+    }
+
+    public int Brightness
+    {
+        get => _displaySettings.Brightness;
+        set
+        {
+            _displaySettings.Brightness = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(BrightnessDisplay));
+        }
+    }
+
+    public string BrightnessDisplay => _displaySettings.IsBrightnessSupported
+        ? $"{_displaySettings.Brightness}%"
+        : "??";
+
+    // Commands
+    public ICommand? ToggleViewSettingsPanelCommand { get; private set; }
+    public ICommand? ToggleFileMenuPanelCommand { get; private set; }
+    public ICommand? ToggleToolsPanelCommand { get; private set; }
+    public ICommand? ToggleConfigurationPanelCommand { get; private set; }
+    public ICommand? ToggleJobMenuPanelCommand { get; private set; }
+    public ICommand? ToggleFieldToolsPanelCommand { get; private set; }
+    public ICommand? ToggleGridCommand { get; private set; }
+    public ICommand? ToggleDayNightCommand { get; private set; }
+    public ICommand? Toggle2D3DCommand { get; private set; }
+    public ICommand? ToggleNorthUpCommand { get; private set; }
+    public ICommand? IncreaseCameraPitchCommand { get; private set; }
+    public ICommand? DecreaseCameraPitchCommand { get; private set; }
+    public ICommand? IncreaseBrightnessCommand { get; private set; }
+    public ICommand? DecreaseBrightnessCommand { get; private set; }
+
+    // Simulator Commands
+    public ICommand? ToggleSimulatorPanelCommand { get; private set; }
+    public ICommand? ResetSimulatorCommand { get; private set; }
+    public ICommand? ResetSteerAngleCommand { get; private set; }
+    public ICommand? SimulatorForwardCommand { get; private set; }
+    public ICommand? SimulatorStopCommand { get; private set; }
+    public ICommand? SimulatorReverseCommand { get; private set; }
+    public ICommand? SimulatorReverseDirectionCommand { get; private set; }
+    public ICommand? SimulatorSteerLeftCommand { get; private set; }
+    public ICommand? SimulatorSteerRightCommand { get; private set; }
+
+    private void InitializeCommands()
+    {
+        // Use simple RelayCommand to avoid ReactiveCommand threading issues
+        // Use property setters instead of service methods to ensure PropertyChanged fires
+        ToggleViewSettingsPanelCommand = new RelayCommand(() =>
+        {
+            IsViewSettingsPanelVisible = !IsViewSettingsPanelVisible;
+        });
+
+        ToggleFileMenuPanelCommand = new RelayCommand(() =>
+        {
+            IsFileMenuPanelVisible = !IsFileMenuPanelVisible;
+        });
+
+        ToggleToolsPanelCommand = new RelayCommand(() =>
+        {
+            IsToolsPanelVisible = !IsToolsPanelVisible;
+        });
+
+        ToggleConfigurationPanelCommand = new RelayCommand(() =>
+        {
+            IsConfigurationPanelVisible = !IsConfigurationPanelVisible;
+        });
+
+        ToggleJobMenuPanelCommand = new RelayCommand(() =>
+        {
+            IsJobMenuPanelVisible = !IsJobMenuPanelVisible;
+        });
+
+        ToggleFieldToolsPanelCommand = new RelayCommand(() =>
+        {
+            IsFieldToolsPanelVisible = !IsFieldToolsPanelVisible;
+        });
+
+        ToggleGridCommand = new RelayCommand(() =>
+        {
+            IsGridOn = !IsGridOn;
+        });
+
+        ToggleDayNightCommand = new RelayCommand(() =>
+        {
+            IsDayMode = !IsDayMode;
+        });
+
+        Toggle2D3DCommand = new RelayCommand(() =>
+        {
+            Is2DMode = !Is2DMode;
+        });
+
+        ToggleNorthUpCommand = new RelayCommand(() =>
+        {
+            IsNorthUp = !IsNorthUp;
+        });
+
+        IncreaseCameraPitchCommand = new RelayCommand(() =>
+        {
+            CameraPitch += 5.0;
+        });
+
+        DecreaseCameraPitchCommand = new RelayCommand(() =>
+        {
+            CameraPitch -= 5.0;
+        });
+
+        IncreaseBrightnessCommand = new RelayCommand(() =>
+        {
+            Brightness += 5; // Match the step from DisplaySettingsService
+        });
+
+        DecreaseBrightnessCommand = new RelayCommand(() =>
+        {
+            Brightness -= 5;
+        });
+
+        // Simulator commands
+        ToggleSimulatorPanelCommand = new RelayCommand(() =>
+        {
+            IsSimulatorPanelVisible = !IsSimulatorPanelVisible;
+        });
+
+        ResetSimulatorCommand = new RelayCommand(() =>
+        {
+            _simulatorService.Reset();
+            SimulatorSteerAngle = 0;
+            StatusMessage = "Simulator Reset";
+        });
+
+        ResetSteerAngleCommand = new RelayCommand(() =>
+        {
+            SimulatorSteerAngle = 0;
+            StatusMessage = "Steer Angle Reset to 0°";
+        });
+
+        SimulatorForwardCommand = new RelayCommand(() =>
+        {
+            _simulatorService.StepDistance = 0;  // Reset speed before accelerating
+            _simulatorService.IsAcceleratingForward = true;
+            _simulatorService.IsAcceleratingBackward = false;
+            StatusMessage = "Sim: Accelerating Forward";
+        });
+
+        SimulatorStopCommand = new RelayCommand(() =>
+        {
+            _simulatorService.IsAcceleratingForward = false;
+            _simulatorService.IsAcceleratingBackward = false;
+            _simulatorService.StepDistance = 0;  // Immediately stop movement
+            StatusMessage = "Sim: Stopped";
+        });
+
+        SimulatorReverseCommand = new RelayCommand(() =>
+        {
+            _simulatorService.StepDistance = 0;  // Reset speed before accelerating
+            _simulatorService.IsAcceleratingBackward = true;
+            _simulatorService.IsAcceleratingForward = false;
+            StatusMessage = "Sim: Accelerating Reverse";
+        });
+
+        SimulatorReverseDirectionCommand = new RelayCommand(() =>
+        {
+            // Reverse direction by adding 180 degrees to current heading
+            var newHeading = _simulatorService.HeadingRadians + Math.PI;
+            // Normalize to 0-2π range
+            if (newHeading > Math.PI * 2)
+                newHeading -= Math.PI * 2;
+            _simulatorService.SetHeading(newHeading);
+            StatusMessage = "Sim: Direction Reversed";
+        });
+
+        SimulatorSteerLeftCommand = new RelayCommand(() =>
+        {
+            SimulatorSteerAngle -= 5.0; // 5 degree increments
+            StatusMessage = $"Steer: {SimulatorSteerAngle:F1}°";
+        });
+
+        SimulatorSteerRightCommand = new RelayCommand(() =>
+        {
+            SimulatorSteerAngle += 5.0; // 5 degree increments
+            StatusMessage = $"Steer: {SimulatorSteerAngle:F1}°";
+        });
+    }
+
+}

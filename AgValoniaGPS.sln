@@ -1,0 +1,56 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgValoniaGPS.Models", "Shared\AgValoniaGPS.Models\AgValoniaGPS.Models.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgValoniaGPS.Services", "Shared\AgValoniaGPS.Services\AgValoniaGPS.Services.csproj", "{A1B2C3D4-1111-2222-3333-444455557777}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgValoniaGPS.ViewModels", "Shared\AgValoniaGPS.ViewModels\AgValoniaGPS.ViewModels.csproj", "{A1B2C3D4-1111-2222-3333-444455558888}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgValoniaGPS.Desktop", "Platforms\AgValoniaGPS.Desktop\AgValoniaGPS.Desktop.csproj", "{A1B2C3D4-1111-2222-3333-444455559999}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgValoniaGPS.iOS", "Platforms\AgValoniaGPS.iOS\AgValoniaGPS.iOS.csproj", "{A1B2C3D4-1111-2222-3333-44445555AAAA}"
+EndProject
+
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Shared", "Shared", "{SHARED-FOLDER-GUID-0001}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Platforms", "Platforms", "{PLATFORM-FOLDER-GUID-0002}"
+EndProject
+
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-1111-2222-3333-444455556666}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455556666}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455557777}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455557777}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455557777}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455557777}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455558888}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455558888}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455558888}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455558888}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455559999}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455559999}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455559999}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-444455559999}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-44445555AAAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-44445555AAAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-1111-2222-3333-44445555AAAA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-1111-2222-3333-44445555AAAA}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A1B2C3D4-1111-2222-3333-444455556666} = {SHARED-FOLDER-GUID-0001}
+		{A1B2C3D4-1111-2222-3333-444455557777} = {SHARED-FOLDER-GUID-0001}
+		{A1B2C3D4-1111-2222-3333-444455558888} = {SHARED-FOLDER-GUID-0001}
+		{A1B2C3D4-1111-2222-3333-444455559999} = {PLATFORM-FOLDER-GUID-0002}
+		{A1B2C3D4-1111-2222-3333-44445555AAAA} = {PLATFORM-FOLDER-GUID-0002}
+	EndGlobalSection
+EndGlobal
