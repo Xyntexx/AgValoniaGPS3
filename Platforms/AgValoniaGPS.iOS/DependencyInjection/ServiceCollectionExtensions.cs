@@ -3,9 +3,8 @@ using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.ViewModels;
 using AgValoniaGPS.Models;
-using AgValoniaGPS.Desktop.Services;
 
-namespace AgValoniaGPS.Desktop.DependencyInjection;
+namespace AgValoniaGPS.iOS.DependencyInjection;
 
 public static class ServiceCollectionExtensions
 {
@@ -38,12 +37,6 @@ public static class ServiceCollectionExtensions
 
         // Boundary recording service
         services.AddSingleton<IBoundaryRecordingService, BoundaryRecordingService>();
-
-        // Platform-specific services (Desktop implementations)
-        services.AddSingleton<DialogService>();
-        services.AddSingleton<IDialogService>(sp => sp.GetRequiredService<DialogService>());
-        services.AddSingleton<MapService>();
-        services.AddSingleton<IMapService>(sp => sp.GetRequiredService<MapService>());
 
         return services;
     }

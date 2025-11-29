@@ -23,6 +23,9 @@ public class MainViewModel : ReactiveObject
     private readonly AgValoniaGPS.Services.Interfaces.IGpsSimulationService _simulatorService;
     private readonly VehicleConfiguration _vehicleConfig;
     private readonly ISettingsService _settingsService;
+    private readonly IDialogService _dialogService;
+    private readonly IMapService _mapService;
+    private readonly IBoundaryRecordingService _boundaryRecordingService;
     private readonly NmeaParserService _nmeaParser;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
@@ -64,7 +67,10 @@ public class MainViewModel : ReactiveObject
         AgValoniaGPS.Services.Interfaces.IFieldStatisticsService fieldStatistics,
         AgValoniaGPS.Services.Interfaces.IGpsSimulationService simulatorService,
         VehicleConfiguration vehicleConfig,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        IDialogService dialogService,
+        IMapService mapService,
+        IBoundaryRecordingService boundaryRecordingService)
     {
         _udpService = udpService;
         _gpsService = gpsService;
@@ -76,6 +82,9 @@ public class MainViewModel : ReactiveObject
         _simulatorService = simulatorService;
         _vehicleConfig = vehicleConfig;
         _settingsService = settingsService;
+        _dialogService = dialogService;
+        _mapService = mapService;
+        _boundaryRecordingService = boundaryRecordingService;
         _nmeaParser = new NmeaParserService(gpsService);
 
         // Subscribe to events
@@ -893,6 +902,40 @@ public class MainViewModel : ReactiveObject
     public ICommand? SimulatorSteerLeftCommand { get; private set; }
     public ICommand? SimulatorSteerRightCommand { get; private set; }
 
+    // Dialog Commands
+    public ICommand? ShowDataIODialogCommand { get; private set; }
+    public ICommand? ShowSimCoordsDialogCommand { get; private set; }
+    public ICommand? ShowFieldSelectionDialogCommand { get; private set; }
+    public ICommand? ShowNewFieldDialogCommand { get; private set; }
+    public ICommand? ShowFromExistingFieldDialogCommand { get; private set; }
+    public ICommand? ShowIsoXmlImportDialogCommand { get; private set; }
+    public ICommand? ShowKmlImportDialogCommand { get; private set; }
+    public ICommand? ShowAgShareDownloadDialogCommand { get; private set; }
+    public ICommand? ShowAgShareUploadDialogCommand { get; private set; }
+    public ICommand? ShowAgShareSettingsDialogCommand { get; private set; }
+    public ICommand? ShowBoundaryDialogCommand { get; private set; }
+
+    // Field Commands
+    public ICommand? CloseFieldCommand { get; private set; }
+    public ICommand? DriveInCommand { get; private set; }
+    public ICommand? ResumeFieldCommand { get; private set; }
+
+    // Map Commands
+    public ICommand? Toggle3DModeCommand { get; private set; }
+    public ICommand? ZoomInCommand { get; private set; }
+    public ICommand? ZoomOutCommand { get; private set; }
+
+    // Boundary Recording Commands
+    public ICommand? ToggleBoundaryPanelCommand { get; private set; }
+    public ICommand? StartBoundaryRecordingCommand { get; private set; }
+    public ICommand? PauseBoundaryRecordingCommand { get; private set; }
+    public ICommand? StopBoundaryRecordingCommand { get; private set; }
+    public ICommand? UndoBoundaryPointCommand { get; private set; }
+    public ICommand? ClearBoundaryCommand { get; private set; }
+    public ICommand? AddBoundaryPointCommand { get; private set; }
+    public ICommand? DeleteBoundaryCommand { get; private set; }
+    public ICommand? ImportKmlBoundaryCommand { get; private set; }
+
     private void InitializeCommands()
     {
         // Use simple RelayCommand to avoid ReactiveCommand threading issues
@@ -1032,6 +1075,281 @@ public class MainViewModel : ReactiveObject
             SimulatorSteerAngle += 5.0; // 5 degree increments
             StatusMessage = $"Steer: {SimulatorSteerAngle:F1}°";
         });
+
+        // Dialog Commands
+        ShowDataIODialogCommand = new AsyncRelayCommand(async () =>
+        {
+            await _dialogService.ShowDataIODialogAsync();
+        });
+
+        ShowSimCoordsDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            if (!IsSimulatorEnabled)
+            {
+                await _dialogService.ShowMessageAsync("Simulator Not Enabled", "Please enable the simulator first.");
+                return;
+            }
+            var currentPos = GetSimulatorPosition();
+            var result = await _dialogService.ShowSimCoordsDialogAsync(currentPos.Latitude, currentPos.Longitude);
+            if (result.HasValue)
+            {
+                SetSimulatorCoordinates(result.Value.Latitude, result.Value.Longitude);
+            }
+        });
+
+        ShowFieldSelectionDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var fieldsDir = FieldsRootDirectory;
+            if (string.IsNullOrWhiteSpace(fieldsDir))
+            {
+                fieldsDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "AgOpenGPS", "Fields");
+            }
+            var result = await _dialogService.ShowFieldSelectionDialogAsync(fieldsDir);
+            if (result != null)
+            {
+                FieldsRootDirectory = fieldsDir;
+                CurrentFieldName = result.FieldName;
+                IsFieldOpen = true;
+                if (result.Boundary != null)
+                {
+                    _mapService.SetBoundary(result.Boundary);
+                    CenterMapOnBoundary(result.Boundary);
+                }
+            }
+        });
+
+        ShowNewFieldDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var currentPosition = new Position
+            {
+                Latitude = Latitude != 0 ? Latitude : 40.7128,
+                Longitude = Longitude != 0 ? Longitude : -74.0060,
+                Altitude = 0
+            };
+            var result = await _dialogService.ShowNewFieldDialogAsync(currentPosition);
+            if (result != null)
+            {
+                CurrentFieldName = result.FieldName;
+                IsFieldOpen = true;
+                StatusMessage = $"Created field: {result.FieldName}";
+            }
+        });
+
+        ShowFromExistingFieldDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var result = await _dialogService.ShowFromExistingFieldDialogAsync(_settingsService.Settings.FieldsDirectory);
+            if (result != null)
+            {
+                CurrentFieldName = result.NewFieldName;
+                IsFieldOpen = true;
+                StatusMessage = $"Created field from existing: {result.NewFieldName}";
+            }
+        });
+
+        ShowIsoXmlImportDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var result = await _dialogService.ShowIsoXmlImportDialogAsync(_settingsService.Settings.FieldsDirectory);
+            if (result != null)
+            {
+                CurrentFieldName = result.FieldName;
+                IsFieldOpen = true;
+                if (result.ImportedBoundary != null)
+                {
+                    _mapService.SetBoundary(result.ImportedBoundary);
+                }
+                StatusMessage = $"Imported ISO-XML: {result.FieldName}";
+            }
+        });
+
+        ShowKmlImportDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var result = await _dialogService.ShowKmlImportDialogAsync(_settingsService.Settings.FieldsDirectory);
+            if (result != null)
+            {
+                CurrentFieldName = result.FieldName;
+                IsFieldOpen = true;
+                if (result.ImportedBoundary != null)
+                {
+                    _mapService.SetBoundary(result.ImportedBoundary);
+                }
+                StatusMessage = $"Imported KML: {result.FieldName}";
+            }
+        });
+
+        ShowAgShareDownloadDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var result = await _dialogService.ShowAgShareDownloadDialogAsync(
+                _settingsService.Settings.AgShareApiKey,
+                _settingsService.Settings.FieldsDirectory);
+            if (result != null)
+            {
+                CurrentFieldName = result.FieldName;
+                IsFieldOpen = true;
+                StatusMessage = $"Downloaded from AgShare: {result.FieldName}";
+            }
+        });
+
+        ShowAgShareUploadDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+            {
+                await _dialogService.ShowMessageAsync("No Field Open", "Please open a field first.");
+                return;
+            }
+            var fieldDir = System.IO.Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+            var success = await _dialogService.ShowAgShareUploadDialogAsync(
+                _settingsService.Settings.AgShareApiKey,
+                CurrentFieldName,
+                fieldDir);
+            if (success)
+            {
+                StatusMessage = $"Uploaded to AgShare: {CurrentFieldName}";
+            }
+        });
+
+        ShowAgShareSettingsDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            await _dialogService.ShowAgShareSettingsDialogAsync();
+        });
+
+        ShowBoundaryDialogCommand = new AsyncRelayCommand(async () =>
+        {
+            var result = await _dialogService.ShowMapBoundaryDialogAsync(Latitude, Longitude);
+            // Handle boundary result if needed
+        });
+
+        // Field Commands
+        CloseFieldCommand = new RelayCommand(() =>
+        {
+            CurrentFieldName = string.Empty;
+            IsFieldOpen = false;
+            _mapService.SetBoundary(null);
+            StatusMessage = "Field closed";
+        });
+
+        DriveInCommand = new RelayCommand(() =>
+        {
+            // Start a new field at current GPS position
+            if (Latitude != 0 && Longitude != 0)
+            {
+                StatusMessage = "Drive-in field started";
+            }
+        });
+
+        ResumeFieldCommand = new AsyncRelayCommand(async () =>
+        {
+            var lastField = _settingsService.Settings.LastOpenedField;
+            if (!string.IsNullOrEmpty(lastField))
+            {
+                var result = await _dialogService.ShowFieldSelectionDialogAsync(_settingsService.Settings.FieldsDirectory);
+                if (result != null)
+                {
+                    CurrentFieldName = result.FieldName;
+                    IsFieldOpen = true;
+                    if (result.Boundary != null)
+                    {
+                        _mapService.SetBoundary(result.Boundary);
+                    }
+                }
+            }
+        });
+
+        // Map Commands
+        Toggle3DModeCommand = new RelayCommand(() =>
+        {
+            _mapService.Toggle3DMode();
+            Is2DMode = !_mapService.Is3DMode;
+        });
+
+        ZoomInCommand = new RelayCommand(() =>
+        {
+            _mapService.Zoom(1.2);
+        });
+
+        ZoomOutCommand = new RelayCommand(() =>
+        {
+            _mapService.Zoom(0.8);
+        });
+
+        // Boundary Recording Commands
+        ToggleBoundaryPanelCommand = new RelayCommand(() =>
+        {
+            IsBoundaryPanelVisible = !IsBoundaryPanelVisible;
+        });
+
+        StartBoundaryRecordingCommand = new RelayCommand(() =>
+        {
+            _boundaryRecordingService.StartRecording(BoundaryType.Outer);
+            StatusMessage = "Boundary recording started";
+        });
+
+        PauseBoundaryRecordingCommand = new RelayCommand(() =>
+        {
+            _boundaryRecordingService.PauseRecording();
+            StatusMessage = "Boundary recording paused";
+        });
+
+        StopBoundaryRecordingCommand = new RelayCommand(() =>
+        {
+            var polygon = _boundaryRecordingService.StopRecording();
+            if (polygon != null)
+            {
+                // Create a Boundary from the polygon
+                var boundary = new Boundary { OuterBoundary = polygon };
+                _mapService.SetBoundary(boundary);
+                StatusMessage = "Boundary recording stopped";
+            }
+        });
+
+        UndoBoundaryPointCommand = new RelayCommand(() =>
+        {
+            _boundaryRecordingService.RemoveLastPoint();
+        });
+
+        ClearBoundaryCommand = new RelayCommand(() =>
+        {
+            _boundaryRecordingService.ClearPoints();
+            StatusMessage = "Boundary cleared";
+        });
+
+        AddBoundaryPointCommand = new RelayCommand(() =>
+        {
+            _boundaryRecordingService.AddPoint(Easting, Northing, Heading * Math.PI / 180.0);
+        });
+
+        DeleteBoundaryCommand = new RelayCommand(() =>
+        {
+            _mapService.SetBoundary(null);
+            StatusMessage = "Boundary deleted";
+        });
+
+        ImportKmlBoundaryCommand = new AsyncRelayCommand(async () =>
+        {
+            var result = await _dialogService.ShowKmlImportDialogAsync(_settingsService.Settings.FieldsDirectory);
+            if (result?.ImportedBoundary != null)
+            {
+                _mapService.SetBoundary(result.ImportedBoundary);
+                StatusMessage = "Boundary imported from KML";
+            }
+        });
+    }
+
+    private void CenterMapOnBoundary(Boundary boundary)
+    {
+        if (boundary.OuterBoundary?.Points == null || boundary.OuterBoundary.Points.Count == 0)
+            return;
+
+        double sumE = 0, sumN = 0;
+        foreach (var point in boundary.OuterBoundary.Points)
+        {
+            sumE += point.Easting;
+            sumN += point.Northing;
+        }
+        double centerE = sumE / boundary.OuterBoundary.Points.Count;
+        double centerN = sumN / boundary.OuterBoundary.Points.Count;
+        _mapService.PanTo(centerE, centerN);
     }
 
 }

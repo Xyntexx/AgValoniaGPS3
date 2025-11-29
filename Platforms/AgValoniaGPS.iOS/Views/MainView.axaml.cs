@@ -16,11 +16,11 @@ using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Base;
-using AgValoniaGPS.Desktop.Controls;
+using AgValoniaGPS.iOS.Controls;
 
-namespace AgValoniaGPS.Desktop.Views;
+namespace AgValoniaGPS.iOS.Views;
 
-public partial class MainWindow : Window
+public partial class MainView : UserControl
 {
     private MainViewModel? ViewModel => DataContext as MainViewModel;
     private IMapControl? MapControl;
@@ -46,7 +46,7 @@ public partial class MainWindow : Window
     private const int TapTimeThresholdMs = 300;
     private const double TapDistanceThreshold = 5.0;
 
-    public MainWindow()
+    public MainView()
     {
         InitializeComponent();
 
@@ -59,11 +59,12 @@ public partial class MainWindow : Window
             DataContext = App.Services.GetRequiredService<MainViewModel>();
         }
 
-        // Handle window resize to keep section control in bounds
-        this.PropertyChanged += MainWindow_PropertyChanged;
+        // Handle resize to keep section control in bounds
+        this.PropertyChanged += MainView_PropertyChanged;
 
-        // Load window settings AFTER window is opened to avoid Avalonia overriding them
-        this.Opened += MainWindow_Opened;
+        // Load settings when attached to visual tree
+        this.AttachedToVisualTree += MainView_AttachedToVisualTree;
+        this.DetachedFromVisualTree += MainView_DetachedFromVisualTree;
 
         // Subscribe to GPS position changes
         if (ViewModel != null)
@@ -72,10 +73,12 @@ public partial class MainWindow : Window
         }
 
         // Add keyboard shortcut for 3D mode toggle (F3)
-        this.KeyDown += MainWindow_KeyDown;
+        this.KeyDown += MainView_KeyDown;
+    }
 
-        // Save window settings on close
-        this.Closing += MainWindow_Closing;
+    private Window? GetParentWindow()
+    {
+        return TopLevel.GetTopLevel(this) as Window;
     }
 
     private void CreateMapControl()
@@ -106,44 +109,26 @@ public partial class MainWindow : Window
         {
             MapControl.IsGridVisible = ViewModel.IsGridOn;
         }
-
-        // Wire up the MapService with the MapControl
-        if (App.Services != null && MapControl != null)
-        {
-            var mapService = App.Services.GetRequiredService<AgValoniaGPS.Desktop.Services.MapService>();
-            mapService.SetMapControl(MapControl);
-        }
     }
 
-    private void MainWindow_Opened(object? sender, EventArgs e)
+    private void MainView_AttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
-        // Load settings after window is opened
-        LoadWindowSettings();
+        // Load settings when view is attached
+        LoadSettings();
     }
 
-    private void LoadWindowSettings()
+    private void MainView_DetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        // Save settings when view is detached
+        SaveSettings();
+    }
+
+    private void LoadSettings()
     {
         if (App.Services == null) return;
 
         var settingsService = App.Services.GetRequiredService<ISettingsService>();
         var settings = settingsService.Settings;
-
-        // Apply window size and position
-        if (settings.WindowWidth > 0 && settings.WindowHeight > 0)
-        {
-            Width = settings.WindowWidth;
-            Height = settings.WindowHeight;
-        }
-
-        if (settings.WindowX >= 0 && settings.WindowY >= 0)
-        {
-            Position = new PixelPoint((int)settings.WindowX, (int)settings.WindowY);
-        }
-
-        if (settings.WindowMaximized)
-        {
-            WindowState = WindowState.Maximized;
-        }
 
         // Apply simulator panel position if saved
         if (SimulatorPanel != null && !double.IsNaN(settings.SimulatorPanelX) && !double.IsNaN(settings.SimulatorPanelY))
@@ -153,23 +138,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private void SaveSettings()
     {
         if (App.Services == null) return;
 
         var settingsService = App.Services.GetRequiredService<ISettingsService>();
         var settings = settingsService.Settings;
-
-        // Save window state
-        settings.WindowMaximized = WindowState == WindowState.Maximized;
-
-        if (WindowState == WindowState.Normal)
-        {
-            settings.WindowWidth = Width;
-            settings.WindowHeight = Height;
-            settings.WindowX = Position.X;
-            settings.WindowY = Position.Y;
-        }
 
         // Save simulator panel position
         if (SimulatorPanel != null)
@@ -185,11 +159,9 @@ public partial class MainWindow : Window
             settings.SimulatorEnabled = ViewModel.IsSimulatorEnabled;
             settings.GridVisible = ViewModel.IsGridOn;
         }
-
-        // Settings will be saved automatically by App.Exit handler
     }
 
-    private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
+    private void MainView_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.F3 && MapControl != null)
         {
@@ -210,7 +182,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void MainWindow_PropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
+    private void MainView_PropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property.Name == nameof(Bounds))
         {
@@ -3221,8 +3193,8 @@ public partial class MainWindow : Window
             try
             {
                 var assetUri = _isRecording
-                    ? new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/boundaryPause.png")
-                    : new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRecord.png");
+                    ? new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/boundaryPause.png")
+                    : new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/BoundaryRecord.png");
                 pausePlayImage.Source = new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.AssetLoader.Open(assetUri));
             }
             catch { }
@@ -3340,8 +3312,8 @@ public partial class MainWindow : Window
             try
             {
                 var assetUri = _isDrawRightSide
-                    ? new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRight.png")
-                    : new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryLeft.png");
+                    ? new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/BoundaryRight.png")
+                    : new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/BoundaryLeft.png");
                 image.Source = new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.AssetLoader.Open(assetUri));
             }
             catch { }
@@ -3367,8 +3339,8 @@ public partial class MainWindow : Window
             try
             {
                 var assetUri = _isDrawAtPivot
-                    ? new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRecordPivot.png")
-                    : new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRecordTool.png");
+                    ? new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/BoundaryRecordPivot.png")
+                    : new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/BoundaryRecordTool.png");
                 image.Source = new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.AssetLoader.Open(assetUri));
             }
             catch { }
@@ -3529,8 +3501,8 @@ public partial class MainWindow : Window
             try
             {
                 var assetUri = _isRecording
-                    ? new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/boundaryPause.png")
-                    : new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRecord.png");
+                    ? new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/boundaryPause.png")
+                    : new Uri("avares://AgValoniaGPS.iOS/Assets/Icons/BoundaryRecord.png");
                 pausePlayImage.Source = new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.AssetLoader.Open(assetUri));
             }
             catch { }
