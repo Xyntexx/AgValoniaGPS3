@@ -236,18 +236,42 @@ public class DialogService : IDialogService
         return null;
     }
 
-    public async Task<DialogKmlImportResult?> ShowKmlImportDialogAsync(string fieldsDirectory)
+    public async Task<DialogKmlImportResult?> ShowKmlImportDialogAsync(string fieldsDirectory, string? currentFieldPath = null)
     {
+        var parent = GetParentWindow();
+        var storageProvider = parent.StorageProvider;
+
+        // Show file picker first
+        var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = "Select KML File",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new Avalonia.Platform.Storage.FilePickerFileType("KML Files") { Patterns = new[] { "*.kml", "*.KML" } }
+            }
+        });
+
+        if (files.Count == 0) return null;
+
+        var kmlFilePath = files[0].Path.LocalPath;
+
+        // Show the import dialog with the selected KML file
         var dialog = new KmlImportDialog(fieldsDirectory);
-        var result = await dialog.ShowDialog<bool?>(GetParentWindow());
+        dialog.LoadKmlFile(kmlFilePath);
+
+        var result = await dialog.ShowDialog<bool?>(parent);
 
         if (result == true && dialog.Result != null)
         {
             return new DialogKmlImportResult
             {
                 FieldName = dialog.Result.NewFieldName,
-                FieldDirectory = dialog.Result.NewFieldPath,
-                ImportedBoundary = null // TODO: Convert boundary points to Boundary if needed
+                FieldDirectory = currentFieldPath ?? dialog.Result.NewFieldPath,
+                ImportedBoundary = null, // ViewModel will create the boundary from points
+                CenterLatitude = dialog.Result.CenterLatitude,
+                CenterLongitude = dialog.Result.CenterLongitude,
+                BoundaryPoints = dialog.Result.BoundaryPoints
             };
         }
         return null;
@@ -289,11 +313,18 @@ public class DialogService : IDialogService
         var dialog = new MapsuiBoundaryDialog(centerLatitude, centerLongitude);
         var result = await dialog.ShowDialog<bool?>(GetParentWindow());
 
-        if (result == true && dialog.Result?.BoundaryPoints != null && dialog.Result.BoundaryPoints.Count > 0)
+        if (result == true && dialog.Result != null &&
+            (dialog.Result.BoundaryPoints.Count >= 3 || dialog.Result.HasBackgroundImage))
         {
             return new DialogMapBoundaryResult
             {
-                Points = dialog.Result.BoundaryPoints
+                BoundaryPoints = dialog.Result.BoundaryPoints,
+                HasBackgroundImage = dialog.Result.HasBackgroundImage,
+                BackgroundImagePath = dialog.Result.BackgroundImagePath,
+                NorthWestLat = dialog.Result.NorthWestLat,
+                NorthWestLon = dialog.Result.NorthWestLon,
+                SouthEastLat = dialog.Result.SouthEastLat,
+                SouthEastLon = dialog.Result.SouthEastLon
             };
         }
         return null;

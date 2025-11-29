@@ -14,7 +14,6 @@ using AgValoniaGPS.ViewModels;
 using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models;
-using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Base;
 using AgValoniaGPS.Desktop.Controls;
 
@@ -39,7 +38,6 @@ public partial class MainWindow : Window
     // Boundary Player state
     private bool _isDrawRightSide = true;
     private bool _isDrawAtPivot = false;
-    private bool _isRecording = false;
     private bool _isBoundarySectionControlOn = false;
     private double _boundaryOffset = 0; // Offset in centimeters
     private DateTime _leftPanelPressTime;
@@ -1277,7 +1275,6 @@ public partial class MainWindow : Window
     // ========== Boundary Recording Panel Handlers ==========
 
     private IBoundaryRecordingService? _boundaryRecordingService;
-    private int _selectedBoundaryIndex = -1;
     private BoundaryType _currentBoundaryType = BoundaryType.Outer;
 
     private IBoundaryRecordingService BoundaryRecordingService
@@ -1301,7 +1298,7 @@ public partial class MainWindow : Window
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             UpdateRecordingDisplay();
-            UpdateBoundaryPlayerDisplay();
+            // Display updated via ViewModel bindings
         });
     }
 
@@ -1330,493 +1327,6 @@ public partial class MainWindow : Window
         else
         {
             MapControl.ClearRecordingPoints();
-        }
-    }
-
-    // Boundary button click (opens the boundary recording panel)
-    private void BtnBoundary_Click(object? sender, RoutedEventArgs e)
-    {
-        if (ViewModel != null)
-        {
-            ViewModel.IsBoundaryPanelVisible = !ViewModel.IsBoundaryPanelVisible;
-            if (ViewModel.IsBoundaryPanelVisible)
-            {
-                RefreshBoundaryList();
-            }
-        }
-    }
-
-    // Refresh the boundary list display
-    private void RefreshBoundaryList()
-    {
-        if (App.Services == null || ViewModel == null) return;
-
-        var boundaryListPanel = this.FindControl<StackPanel>("BoundaryListPanel");
-        if (boundaryListPanel == null) return;
-
-        boundaryListPanel.Children.Clear();
-        _selectedBoundaryIndex = -1;
-
-        // Load boundary from current field
-        if (string.IsNullOrEmpty(ViewModel.CurrentFieldName)) return;
-
-        var settingsService = App.Services.GetRequiredService<ISettingsService>();
-        var boundaryFileService = App.Services.GetRequiredService<BoundaryFileService>();
-        var fieldPath = Path.Combine(settingsService.Settings.FieldsDirectory, ViewModel.CurrentFieldName);
-        var boundary = boundaryFileService.LoadBoundary(fieldPath);
-
-        if (boundary == null) return;
-
-        int index = 0;
-
-        // Add outer boundary if exists
-        if (boundary.OuterBoundary != null && boundary.OuterBoundary.IsValid)
-        {
-            AddBoundaryListItem(boundaryListPanel, "Outer", boundary.OuterBoundary.AreaAcres, boundary.OuterBoundary.IsDriveThrough, index++);
-        }
-
-        // Add inner boundaries
-        for (int i = 0; i < boundary.InnerBoundaries.Count; i++)
-        {
-            var inner = boundary.InnerBoundaries[i];
-            if (inner.IsValid)
-            {
-                AddBoundaryListItem(boundaryListPanel, $"Inner {i + 1}", inner.AreaAcres, inner.IsDriveThrough, index++);
-            }
-        }
-    }
-
-    private void AddBoundaryListItem(StackPanel panel, string boundaryType, double areaAcres, bool isDriveThrough, int index)
-    {
-        var grid = new Grid
-        {
-            ColumnDefinitions = ColumnDefinitions.Parse("*,*,*"),
-            Background = new SolidColorBrush(Color.Parse("#334C566A")),
-            Tag = index
-        };
-
-        grid.PointerPressed += BoundaryListItem_PointerPressed;
-
-        var typeText = new TextBlock
-        {
-            Text = boundaryType,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Colors.White),
-            Padding = new Thickness(8, 6)
-        };
-        Grid.SetColumn(typeText, 0);
-
-        var areaText = new TextBlock
-        {
-            Text = $"{areaAcres:F2} Ac",
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Colors.White),
-            Padding = new Thickness(8, 6)
-        };
-        Grid.SetColumn(areaText, 1);
-
-        var driveThruText = new TextBlock
-        {
-            Text = isDriveThrough ? "Yes" : "--",
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(isDriveThrough ? Colors.LimeGreen : Colors.Gray),
-            Padding = new Thickness(8, 6)
-        };
-        Grid.SetColumn(driveThruText, 2);
-
-        grid.Children.Add(typeText);
-        grid.Children.Add(areaText);
-        grid.Children.Add(driveThruText);
-
-        panel.Children.Add(grid);
-    }
-
-    private void BoundaryListItem_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is Grid grid && grid.Tag is int index)
-        {
-            _selectedBoundaryIndex = index;
-
-            // Update selection visual
-            var boundaryListPanel = this.FindControl<StackPanel>("BoundaryListPanel");
-            if (boundaryListPanel != null)
-            {
-                foreach (var child in boundaryListPanel.Children)
-                {
-                    if (child is Grid g)
-                    {
-                        g.Background = g.Tag is int idx && idx == index
-                            ? new SolidColorBrush(Color.Parse("#3498DB"))
-                            : new SolidColorBrush(Color.Parse("#334C566A"));
-                    }
-                }
-            }
-        }
-    }
-
-    // Delete selected boundary
-    private void BtnDeleteBoundary_Click(object? sender, RoutedEventArgs e)
-    {
-        if (App.Services == null || ViewModel == null || _selectedBoundaryIndex < 0)
-        {
-            if (ViewModel != null && _selectedBoundaryIndex < 0)
-            {
-                ViewModel.StatusMessage = "Select a boundary to delete";
-            }
-            return;
-        }
-
-        if (string.IsNullOrEmpty(ViewModel.CurrentFieldName))
-        {
-            ViewModel.StatusMessage = "No field open";
-            return;
-        }
-
-        var settingsService = App.Services.GetRequiredService<ISettingsService>();
-        var boundaryFileService = App.Services.GetRequiredService<BoundaryFileService>();
-        var fieldPath = Path.Combine(settingsService.Settings.FieldsDirectory, ViewModel.CurrentFieldName);
-        var boundary = boundaryFileService.LoadBoundary(fieldPath);
-
-        if (boundary == null) return;
-
-        int currentIndex = 0;
-        bool deleted = false;
-
-        // Check if outer boundary is selected
-        if (boundary.OuterBoundary != null && boundary.OuterBoundary.IsValid)
-        {
-            if (currentIndex == _selectedBoundaryIndex)
-            {
-                boundary.OuterBoundary = null;
-                deleted = true;
-            }
-            currentIndex++;
-        }
-
-        // Check inner boundaries
-        if (!deleted)
-        {
-            for (int i = 0; i < boundary.InnerBoundaries.Count; i++)
-            {
-                if (boundary.InnerBoundaries[i].IsValid)
-                {
-                    if (currentIndex == _selectedBoundaryIndex)
-                    {
-                        boundary.InnerBoundaries.RemoveAt(i);
-                        deleted = true;
-                        break;
-                    }
-                    currentIndex++;
-                }
-            }
-        }
-
-        if (deleted)
-        {
-            boundaryFileService.SaveBoundary(boundary, fieldPath);
-            RefreshBoundaryList();
-
-            // Update map display
-            if (MapControl != null)
-            {
-                MapControl.SetBoundary(boundary);
-            }
-
-            ViewModel.StatusMessage = "Boundary deleted";
-        }
-    }
-
-    // KML Import button - imports boundary from KML file to current field
-    private async void BtnKmlImportBoundary_Click(object? sender, RoutedEventArgs e)
-    {
-        if (App.Services == null || ViewModel == null) return;
-
-        // Must have a field open
-        if (!ViewModel.IsFieldOpen || string.IsNullOrEmpty(ViewModel.CurrentFieldName))
-        {
-            ViewModel.StatusMessage = "Open a field first before importing a boundary";
-            return;
-        }
-
-        var settingsService = App.Services.GetRequiredService<ISettingsService>();
-        var boundaryFileService = App.Services.GetRequiredService<BoundaryFileService>();
-
-        // Open file picker for KML files
-        var storageProvider = GetTopLevel(this)?.StorageProvider;
-        if (storageProvider == null) return;
-
-        var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
-        {
-            Title = "Select KML File",
-            AllowMultiple = false,
-            FileTypeFilter = new[]
-            {
-                new Avalonia.Platform.Storage.FilePickerFileType("KML Files") { Patterns = new[] { "*.kml", "*.KML" } }
-            }
-        });
-
-        if (files.Count == 0) return;
-
-        var kmlFilePath = files[0].Path.LocalPath;
-
-        // Show the import dialog with the KML file
-        var dialog = new KmlImportDialog(settingsService.Settings.FieldsDirectory);
-        dialog.LoadKmlFile(kmlFilePath);
-
-        var dialogResult = await dialog.ShowDialog<bool?>(this);
-
-        if (dialogResult == true && dialog.Result != null)
-        {
-            try
-            {
-                var result = dialog.Result;
-
-                // Get the field path (use current field, not a new one)
-                var fieldPath = Path.Combine(settingsService.Settings.FieldsDirectory, ViewModel.CurrentFieldName);
-
-                // Load existing boundary or create new one
-                var boundary = boundaryFileService.LoadBoundary(fieldPath) ?? new Models.Boundary();
-
-                // Convert WGS84 boundary points to local coordinates
-                var origin = new AgValoniaGPS.Models.Wgs84(result.CenterLatitude, result.CenterLongitude);
-                var sharedProps = new AgValoniaGPS.Models.SharedFieldProperties();
-                var localPlane = new AgValoniaGPS.Models.LocalPlane(origin, sharedProps);
-
-                var outerPolygon = new Models.BoundaryPolygon();
-
-                foreach (var (lat, lon) in result.BoundaryPoints)
-                {
-                    var wgs84 = new AgValoniaGPS.Models.Wgs84(lat, lon);
-                    var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
-                    outerPolygon.Points.Add(new Models.BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
-                }
-
-                boundary.OuterBoundary = outerPolygon;
-
-                // Save boundary
-                boundaryFileService.SaveBoundary(boundary, fieldPath);
-
-                // Update map
-                if (MapControl != null)
-                {
-                    MapControl.SetBoundary(boundary);
-                }
-
-                // Refresh the boundary list
-                RefreshBoundaryList();
-
-                ViewModel.StatusMessage = $"Boundary imported from KML ({outerPolygon.Points.Count} points)";
-            }
-            catch (Exception ex)
-            {
-                ViewModel.StatusMessage = $"Error importing KML boundary: {ex.Message}";
-            }
-        }
-    }
-
-    // Bing Map button - opens browser-based map boundary drawing
-    private async void BtnBingMap_Click(object? sender, RoutedEventArgs e)
-    {
-        if (App.Services == null || ViewModel == null) return;
-
-        var settingsService = App.Services.GetRequiredService<ISettingsService>();
-        var boundaryFileService = App.Services.GetRequiredService<BoundaryFileService>();
-
-        // Must have a field open
-        if (!ViewModel.IsFieldOpen)
-        {
-            ViewModel.StatusMessage = "Open a field first to add boundary";
-            return;
-        }
-
-        // Get current GPS position for map centering
-        double currentLat = ViewModel.Latitude;
-        double currentLon = ViewModel.Longitude;
-
-        // Show the map dialog
-        var dialog = new MapsuiBoundaryDialog(currentLat, currentLon);
-        var dialogResult = await dialog.ShowDialog<bool?>(this);
-
-        if (dialogResult == true && dialog.Result != null &&
-            (dialog.Result.BoundaryPoints.Count >= 3 || dialog.Result.HasBackgroundImage))
-        {
-            try
-            {
-                var result = dialog.Result;
-
-                // Get field path
-                var fieldPath = Path.Combine(settingsService.Settings.FieldsDirectory, ViewModel.CurrentFieldName);
-
-                // Get LocalPlane - use boundary center or background center
-                AgValoniaGPS.Models.LocalPlane? localPlane = null;
-
-                if (result.BoundaryPoints.Count >= 3)
-                {
-                    // Calculate center of boundary points
-                    double sumLat = 0, sumLon = 0;
-                    foreach (var point in result.BoundaryPoints)
-                    {
-                        sumLat += point.Latitude;
-                        sumLon += point.Longitude;
-                    }
-                    double centerLat = sumLat / result.BoundaryPoints.Count;
-                    double centerLon = sumLon / result.BoundaryPoints.Count;
-
-                    var origin = new AgValoniaGPS.Models.Wgs84(centerLat, centerLon);
-                    var sharedProps = new AgValoniaGPS.Models.SharedFieldProperties();
-                    localPlane = new AgValoniaGPS.Models.LocalPlane(origin, sharedProps);
-                }
-                else if (result.HasBackgroundImage)
-                {
-                    // Use background image center as origin
-                    double centerLat = (result.NorthWestLat + result.SouthEastLat) / 2;
-                    double centerLon = (result.NorthWestLon + result.SouthEastLon) / 2;
-
-                    var origin = new AgValoniaGPS.Models.Wgs84(centerLat, centerLon);
-                    var sharedProps = new AgValoniaGPS.Models.SharedFieldProperties();
-                    localPlane = new AgValoniaGPS.Models.LocalPlane(origin, sharedProps);
-                }
-
-                // Process boundary points if present
-                if (result.BoundaryPoints.Count >= 3 && localPlane != null)
-                {
-                    var boundary = new Models.Boundary();
-                    var outerPolygon = new Models.BoundaryPolygon();
-
-                    foreach (var point in result.BoundaryPoints)
-                    {
-                        var wgs84 = new AgValoniaGPS.Models.Wgs84(point.Latitude, point.Longitude);
-                        var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
-                        outerPolygon.Points.Add(new Models.BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
-                    }
-
-                    boundary.OuterBoundary = outerPolygon;
-
-                    // Save boundary
-                    boundaryFileService.SaveBoundary(boundary, fieldPath);
-
-                    // Update map
-                    if (MapControl != null)
-                    {
-                        MapControl.SetBoundary(boundary);
-
-                        // Center on boundary
-                        if (boundary.OuterBoundary.Points.Count > 0)
-                        {
-                            double sumE = 0, sumN = 0;
-                            foreach (var pt in boundary.OuterBoundary.Points)
-                            {
-                                sumE += pt.Easting;
-                                sumN += pt.Northing;
-                            }
-                            MapControl.Pan(sumE / boundary.OuterBoundary.Points.Count,
-                                           sumN / boundary.OuterBoundary.Points.Count);
-                        }
-                    }
-
-                    // Refresh the boundary list
-                    RefreshBoundaryList();
-                }
-
-                // Process background image if present
-                if (result.HasBackgroundImage && !string.IsNullOrEmpty(result.BackgroundImagePath) && localPlane != null)
-                {
-                    // Convert WGS84 corners to local coordinates
-                    var nwWgs84 = new AgValoniaGPS.Models.Wgs84(result.NorthWestLat, result.NorthWestLon);
-                    var seWgs84 = new AgValoniaGPS.Models.Wgs84(result.SouthEastLat, result.SouthEastLon);
-
-                    var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs84);
-                    var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs84);
-
-                    // Copy background image to field directory
-                    var destPngPath = Path.Combine(fieldPath, "BackPic.png");
-                    File.Copy(result.BackgroundImagePath, destPngPath, overwrite: true);
-
-                    // Save geo-reference file in WinForms format for compatibility
-                    var geoFilePath = Path.Combine(fieldPath, "BackPic.txt");
-                    using (var writer = new StreamWriter(geoFilePath))
-                    {
-                        writer.WriteLine("$BackPic");
-                        writer.WriteLine("true");
-                        writer.WriteLine(seLocal.Easting.ToString(CultureInfo.InvariantCulture));  // eastingMax
-                        writer.WriteLine(nwLocal.Easting.ToString(CultureInfo.InvariantCulture));  // eastingMin
-                        writer.WriteLine(nwLocal.Northing.ToString(CultureInfo.InvariantCulture)); // northingMax
-                        writer.WriteLine(seLocal.Northing.ToString(CultureInfo.InvariantCulture)); // northingMin
-                    }
-
-                    // Set the background image in the map control
-                    if (MapControl != null)
-                    {
-                        MapControl.SetBackgroundImage(destPngPath,
-                            nwLocal.Easting, nwLocal.Northing,  // NW corner (minX, maxY)
-                            seLocal.Easting, seLocal.Northing); // SE corner (maxX, minY)
-                    }
-                }
-
-                // Build status message
-                var msgParts = new List<string>();
-                if (result.BoundaryPoints.Count >= 3)
-                    msgParts.Add($"boundary ({result.BoundaryPoints.Count} pts)");
-                if (result.HasBackgroundImage)
-                    msgParts.Add("background image");
-
-                ViewModel.StatusMessage = $"Imported from satellite map: {string.Join(" + ", msgParts)}";
-            }
-            catch (Exception ex)
-            {
-                ViewModel.StatusMessage = $"Error importing: {ex.Message}";
-            }
-        }
-    }
-
-    // Build boundary from driven tracks (placeholder)
-    private void BtnBuildFromTracks_Click(object? sender, RoutedEventArgs e)
-    {
-        if (ViewModel != null)
-        {
-            ViewModel.StatusMessage = "Build boundary from tracks not yet implemented";
-        }
-    }
-
-    // Drive Around Field button - directly opens BoundaryPlayerPanel to record boundary
-    private void BtnDriveAroundField_Click(object? sender, RoutedEventArgs e)
-    {
-        // Must have a field open
-        if (ViewModel == null || !ViewModel.IsFieldOpen || string.IsNullOrEmpty(ViewModel.CurrentFieldName))
-        {
-            if (ViewModel != null)
-                ViewModel.StatusMessage = "Open a field first before recording a boundary";
-            return;
-        }
-
-        // Hide the main boundary panel
-        ViewModel.IsBoundaryPanelVisible = false;
-
-        // Show the BoundaryPlayerPanel
-        var playerPanel = this.FindControl<Border>("BoundaryPlayerPanel");
-        if (playerPanel != null)
-        {
-            playerPanel.IsVisible = true;
-        }
-
-        // Show boundary offset indicator on map
-        UpdateBoundaryOffsetIndicator();
-
-        // Initialize recording service for a new boundary
-        if (BoundaryRecordingService != null)
-        {
-            BoundaryRecordingService.StartRecording(BoundaryType.Outer);
-            _isRecording = false; // Start in paused state (user must click Record to start)
-            BoundaryRecordingService.PauseRecording();
-            UpdateBoundaryPlayerDisplay();
-        }
-
-        if (ViewModel != null)
-        {
-            ViewModel.StatusMessage = "Drive around the field boundary. Click Record to start.";
         }
     }
 
@@ -1874,14 +1384,8 @@ public partial class MainWindow : Window
         // Show boundary offset indicator on map
         UpdateBoundaryOffsetIndicator();
 
-        // Initialize recording service for a new boundary
-        if (BoundaryRecordingService != null)
-        {
-            BoundaryRecordingService.StartRecording(BoundaryType.Outer);
-            _isRecording = false; // Start in paused state (user must click Record to start)
-            BoundaryRecordingService.PauseRecording();
-            UpdateBoundaryPlayerDisplay();
-        }
+        // Initialize recording service for a new boundary (now handled by ViewModel DriveAroundFieldCommand)
+        // Display updated via ViewModel bindings
 
         if (ViewModel != null)
         {
@@ -2036,7 +1540,7 @@ public partial class MainWindow : Window
                     ViewModel.StatusMessage = $"Saved {(isOuter ? "outer" : "inner")} boundary ({polygon.Points.Count} points, {polygon.AreaHectares:F2} ha)";
 
                     // Refresh the boundary list
-                    RefreshBoundaryList();
+                    ViewModel?.RefreshBoundaryList();
                 }
                 else
                 {
@@ -2249,38 +1753,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // Update the BoundaryPlayerPanel display
-    private void UpdateBoundaryPlayerDisplay()
-    {
-        if (BoundaryRecordingService == null) return;
-
-        var pointsLabel = this.FindControl<TextBlock>("BoundaryPlayerPointsLabel");
-        var areaLabel = this.FindControl<TextBlock>("BoundaryPlayerAreaLabel");
-        var pausePlayImage = this.FindControl<Image>("BoundaryPausePlayImage");
-
-        if (pointsLabel != null)
-        {
-            pointsLabel.Text = BoundaryRecordingService.PointCount.ToString();
-        }
-
-        if (areaLabel != null)
-        {
-            areaLabel.Text = BoundaryRecordingService.AreaHectares.ToString("F2");
-        }
-
-        // Update Record/Pause button image
-        if (pausePlayImage != null)
-        {
-            try
-            {
-                var assetUri = _isRecording
-                    ? new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/boundaryPause.png")
-                    : new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRecord.png");
-                pausePlayImage.Source = new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.AssetLoader.Open(assetUri));
-            }
-            catch { }
-        }
-    }
 
     // Offset button clicked - show numeric keypad
     private async void BtnBoundaryOffset_Click(object? sender, RoutedEventArgs e)
@@ -2328,22 +1800,7 @@ public partial class MainWindow : Window
         MapControl?.SetBoundaryOffsetIndicator(true, signedOffsetMeters);
     }
 
-    // Restart boundary recording (delete all points)
-    private void BtnBoundaryRestart_Click(object? sender, RoutedEventArgs e)
-    {
-        if (BoundaryRecordingService == null) return;
-
-        // TODO: Show confirmation dialog
-        BoundaryRecordingService.ClearPoints();
-        _isRecording = false;
-        UpdateBoundaryPlayerDisplay();
-        UpdateRecordingDisplay(); // Update map display
-
-        if (ViewModel != null)
-        {
-            ViewModel.StatusMessage = "Boundary points cleared";
-        }
-    }
+    // BtnBoundaryRestart now handled by ViewModel's ClearBoundaryCommand
 
     // Toggle section control for boundary recording - Checked event
     private void BtnBoundarySectionControl_Checked(object? sender, RoutedEventArgs e)
@@ -2373,7 +1830,7 @@ public partial class MainWindow : Window
         if (BoundaryRecordingService == null) return;
 
         BoundaryRecordingService.RemoveLastPoint();
-        UpdateBoundaryPlayerDisplay();
+        // Display updated via ViewModel bindings
         UpdateRecordingDisplay(); // Update map display
 
         if (ViewModel != null)
@@ -2469,124 +1926,11 @@ public partial class MainWindow : Window
 
         // Add a UTM point with offset applied
         BoundaryRecordingService.AddPoint(offsetEasting, offsetNorthing, headingRadians);
-        UpdateBoundaryPlayerDisplay();
+        // Display updated via ViewModel bindings
 
         if (ViewModel != null)
         {
             ViewModel.StatusMessage = $"Point added ({BoundaryRecordingService.PointCount} total)";
-        }
-    }
-
-    // Stop recording and save boundary
-    private void BtnBoundaryStop_Click(object? sender, RoutedEventArgs e)
-    {
-        if (BoundaryRecordingService == null || App.Services == null || ViewModel == null) return;
-
-        // Get the recorded polygon
-        var polygon = BoundaryRecordingService.StopRecording();
-
-        if (polygon != null && polygon.Points.Count >= 3)
-        {
-            // Save the boundary to the current field
-            var settingsService = App.Services.GetRequiredService<ISettingsService>();
-            var boundaryFileService = App.Services.GetRequiredService<BoundaryFileService>();
-
-            if (!string.IsNullOrEmpty(ViewModel.CurrentFieldName))
-            {
-                var fieldPath = Path.Combine(settingsService.Settings.FieldsDirectory, ViewModel.CurrentFieldName);
-
-                // Load existing boundary or create new one
-                var boundary = boundaryFileService.LoadBoundary(fieldPath) ?? new Models.Boundary();
-
-                // Set as outer boundary
-                boundary.OuterBoundary = polygon;
-
-                // Save the boundary (boundary first, then directory)
-                boundaryFileService.SaveBoundary(boundary, fieldPath);
-
-                // Update the map
-                if (MapControl != null)
-                {
-                    MapControl.SetBoundary(boundary);
-                }
-
-                ViewModel.StatusMessage = $"Boundary saved with {polygon.Points.Count} points, Area: {polygon.AreaHectares:F2} Ha";
-            }
-            else
-            {
-                ViewModel.StatusMessage = "Cannot save boundary - no field is open";
-            }
-        }
-        else
-        {
-            ViewModel.StatusMessage = "Boundary not saved - need at least 3 points";
-        }
-
-        // Hide the BoundaryPlayerPanel
-        var playerPanel = this.FindControl<Border>("BoundaryPlayerPanel");
-        if (playerPanel != null)
-        {
-            playerPanel.IsVisible = false;
-        }
-
-        // Hide boundary offset indicator
-        MapControl?.SetBoundaryOffsetIndicator(false, 0);
-
-        _isRecording = false;
-    }
-
-    // Toggle recording/pause
-    private void BtnBoundaryPausePlay_Click(object? sender, RoutedEventArgs e)
-    {
-        if (BoundaryRecordingService == null) return;
-
-        if (_isRecording)
-        {
-            // Pause recording
-            BoundaryRecordingService.PauseRecording();
-            _isRecording = false;
-
-            // Enable manual point controls when paused
-            var addPointBtn = this.FindControl<Button>("BtnBoundaryAddPoint");
-            var deleteLastBtn = this.FindControl<Button>("BtnBoundaryDeleteLast");
-            if (addPointBtn != null) addPointBtn.IsEnabled = true;
-            if (deleteLastBtn != null) deleteLastBtn.IsEnabled = true;
-
-            if (ViewModel != null)
-            {
-                ViewModel.StatusMessage = "Recording paused";
-            }
-        }
-        else
-        {
-            // Resume recording
-            BoundaryRecordingService.ResumeRecording();
-            _isRecording = true;
-
-            // Disable manual point controls while recording
-            var addPointBtn = this.FindControl<Button>("BtnBoundaryAddPoint");
-            var deleteLastBtn = this.FindControl<Button>("BtnBoundaryDeleteLast");
-            if (addPointBtn != null) addPointBtn.IsEnabled = false;
-            if (deleteLastBtn != null) deleteLastBtn.IsEnabled = false;
-
-            if (ViewModel != null)
-            {
-                ViewModel.StatusMessage = "Recording boundary - drive around the perimeter";
-            }
-        }
-
-        // Update button image
-        var pausePlayImage = this.FindControl<Image>("BoundaryPausePlayImage");
-        if (pausePlayImage != null)
-        {
-            try
-            {
-                var assetUri = _isRecording
-                    ? new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/boundaryPause.png")
-                    : new Uri("avares://AgValoniaGPS.Desktop/Assets/Icons/BoundaryRecord.png");
-                pausePlayImage.Source = new Avalonia.Media.Imaging.Bitmap(Avalonia.Platform.AssetLoader.Open(assetUri));
-            }
-            catch { }
         }
     }
 

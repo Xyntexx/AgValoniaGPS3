@@ -63,11 +63,12 @@ public interface IDialogService
     Task<DialogIsoXmlImportResult?> ShowIsoXmlImportDialogAsync(string fieldsDirectory);
 
     /// <summary>
-    /// Shows the KML import dialog.
+    /// Shows a file picker to select a KML file, then shows the KML import dialog.
     /// </summary>
     /// <param name="fieldsDirectory">Root directory for fields.</param>
+    /// <param name="currentFieldPath">Path to current field for boundary import, or null to create new field.</param>
     /// <returns>Import result if confirmed, null if cancelled.</returns>
-    Task<DialogKmlImportResult?> ShowKmlImportDialogAsync(string fieldsDirectory);
+    Task<DialogKmlImportResult?> ShowKmlImportDialogAsync(string fieldsDirectory, string? currentFieldPath = null);
 
     /// <summary>
     /// Shows the AgShare download dialog.
@@ -163,6 +164,9 @@ public class DialogKmlImportResult
     public required string FieldName { get; init; }
     public required string FieldDirectory { get; init; }
     public Boundary? ImportedBoundary { get; init; }
+    public double CenterLatitude { get; init; }
+    public double CenterLongitude { get; init; }
+    public System.Collections.Generic.List<(double Latitude, double Longitude)> BoundaryPoints { get; init; } = new();
 }
 
 /// <summary>
@@ -179,7 +183,13 @@ public class DialogAgShareDownloadResult
 /// </summary>
 public class DialogMapBoundaryResult
 {
-    public required System.Collections.Generic.List<(double Latitude, double Longitude)> Points { get; init; }
+    public System.Collections.Generic.List<(double Latitude, double Longitude)> BoundaryPoints { get; init; } = new();
+    public bool HasBackgroundImage { get; init; }
+    public string? BackgroundImagePath { get; init; }
+    public double NorthWestLat { get; init; }
+    public double NorthWestLon { get; init; }
+    public double SouthEastLat { get; init; }
+    public double SouthEastLon { get; init; }
 }
 
 #endregion

@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows.Input;
 using ReactiveUI;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Services;
-using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models.GPS;
 using Avalonia.Threading;
@@ -26,6 +27,7 @@ public class MainViewModel : ReactiveObject
     private readonly IDialogService _dialogService;
     private readonly IMapService _mapService;
     private readonly IBoundaryRecordingService _boundaryRecordingService;
+    private readonly BoundaryFileService _boundaryFileService;
     private readonly NmeaParserService _nmeaParser;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
@@ -70,7 +72,8 @@ public class MainViewModel : ReactiveObject
         ISettingsService settingsService,
         IDialogService dialogService,
         IMapService mapService,
-        IBoundaryRecordingService boundaryRecordingService)
+        IBoundaryRecordingService boundaryRecordingService,
+        BoundaryFileService boundaryFileService)
     {
         _udpService = udpService;
         _gpsService = gpsService;
@@ -85,6 +88,7 @@ public class MainViewModel : ReactiveObject
         _dialogService = dialogService;
         _mapService = mapService;
         _boundaryRecordingService = boundaryRecordingService;
+        _boundaryFileService = boundaryFileService;
         _nmeaParser = new NmeaParserService(gpsService);
 
         // Subscribe to events
@@ -95,6 +99,8 @@ public class MainViewModel : ReactiveObject
         _ntripService.RtcmDataReceived += OnRtcmDataReceived;
         _fieldService.ActiveFieldChanged += OnActiveFieldChanged;
         _simulatorService.GpsDataUpdated += OnSimulatorGpsDataUpdated;
+        _boundaryRecordingService.PointAdded += OnBoundaryPointAdded;
+        _boundaryRecordingService.StateChanged += OnBoundaryStateChanged;
 
         // Note: NOT subscribing to DisplaySettings events - using direct property access instead
         // to avoid threading issues with ReactiveUI
@@ -488,6 +494,26 @@ public class MainViewModel : ReactiveObject
         _gpsService.UpdateGpsData(gpsData);
     }
 
+    // Boundary recording event handlers
+    private void OnBoundaryPointAdded(object? sender, BoundaryPointAddedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            BoundaryPointCount = e.TotalPoints;
+            BoundaryAreaHectares = e.AreaHectares;
+        });
+    }
+
+    private void OnBoundaryStateChanged(object? sender, BoundaryRecordingStateChangedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            IsBoundaryRecording = e.State == BoundaryRecordingState.Recording;
+            BoundaryPointCount = e.PointCount;
+            BoundaryAreaHectares = e.AreaHectares;
+        });
+    }
+
     private void OnUdpDataReceived(object? sender, UdpDataReceivedEventArgs e)
     {
         var now = DateTime.Now;
@@ -714,7 +740,51 @@ public class MainViewModel : ReactiveObject
     public bool IsBoundaryPanelVisible
     {
         get => _isBoundaryPanelVisible;
-        set => this.RaiseAndSetIfChanged(ref _isBoundaryPanelVisible, value);
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isBoundaryPanelVisible, value) && value)
+            {
+                RefreshBoundaryList();
+            }
+        }
+    }
+
+    // Boundary list for the boundary panel
+    public ObservableCollection<BoundaryListItem> BoundaryItems { get; } = new();
+
+    private int _selectedBoundaryIndex = -1;
+    public int SelectedBoundaryIndex
+    {
+        get => _selectedBoundaryIndex;
+        set => this.RaiseAndSetIfChanged(ref _selectedBoundaryIndex, value);
+    }
+
+    private bool _isBoundaryPlayerPanelVisible;
+    public bool IsBoundaryPlayerPanelVisible
+    {
+        get => _isBoundaryPlayerPanelVisible;
+        set => this.RaiseAndSetIfChanged(ref _isBoundaryPlayerPanelVisible, value);
+    }
+
+    private bool _isBoundaryRecording;
+    public bool IsBoundaryRecording
+    {
+        get => _isBoundaryRecording;
+        set => this.RaiseAndSetIfChanged(ref _isBoundaryRecording, value);
+    }
+
+    private int _boundaryPointCount;
+    public int BoundaryPointCount
+    {
+        get => _boundaryPointCount;
+        set => this.RaiseAndSetIfChanged(ref _boundaryPointCount, value);
+    }
+
+    private double _boundaryAreaHectares;
+    public double BoundaryAreaHectares
+    {
+        get => _boundaryAreaHectares;
+        set => this.RaiseAndSetIfChanged(ref _boundaryAreaHectares, value);
     }
 
     // Field management properties
@@ -935,6 +1005,10 @@ public class MainViewModel : ReactiveObject
     public ICommand? AddBoundaryPointCommand { get; private set; }
     public ICommand? DeleteBoundaryCommand { get; private set; }
     public ICommand? ImportKmlBoundaryCommand { get; private set; }
+    public ICommand? DrawMapBoundaryCommand { get; private set; }
+    public ICommand? BuildFromTracksCommand { get; private set; }
+    public ICommand? DriveAroundFieldCommand { get; private set; }
+    public ICommand? ToggleRecordingCommand { get; private set; }
 
     private void InitializeCommands()
     {
@@ -1214,10 +1288,11 @@ public class MainViewModel : ReactiveObject
             await _dialogService.ShowAgShareSettingsDialogAsync();
         });
 
-        ShowBoundaryDialogCommand = new AsyncRelayCommand(async () =>
+        ShowBoundaryDialogCommand = new RelayCommand(() =>
         {
-            var result = await _dialogService.ShowMapBoundaryDialogAsync(Latitude, Longitude);
-            // Handle boundary result if needed
+            // Toggle boundary panel visibility - this shows the panel where user can
+            // choose how to create the boundary (KML import, drive around, etc.)
+            IsBoundaryPanelVisible = !IsBoundaryPanelVisible;
         });
 
         // Field Commands
@@ -1288,18 +1363,55 @@ public class MainViewModel : ReactiveObject
         PauseBoundaryRecordingCommand = new RelayCommand(() =>
         {
             _boundaryRecordingService.PauseRecording();
+            IsBoundaryRecording = false;
             StatusMessage = "Boundary recording paused";
         });
 
         StopBoundaryRecordingCommand = new RelayCommand(() =>
         {
             var polygon = _boundaryRecordingService.StopRecording();
-            if (polygon != null)
+
+            if (polygon != null && polygon.Points.Count >= 3)
             {
-                // Create a Boundary from the polygon
-                var boundary = new Boundary { OuterBoundary = polygon };
-                _mapService.SetBoundary(boundary);
-                StatusMessage = "Boundary recording stopped";
+                // Save to current field
+                if (!string.IsNullOrEmpty(CurrentFieldName))
+                {
+                    var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+                    var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+                    boundary.OuterBoundary = polygon;
+                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    _mapService.SetBoundary(boundary);
+                    RefreshBoundaryList();
+                    StatusMessage = $"Boundary saved with {polygon.Points.Count} points, Area: {polygon.AreaHectares:F2} Ha";
+                }
+                else
+                {
+                    StatusMessage = "Cannot save boundary - no field is open";
+                }
+            }
+            else
+            {
+                StatusMessage = "Boundary not saved - need at least 3 points";
+            }
+
+            // Hide the player panel
+            IsBoundaryPlayerPanelVisible = false;
+            IsBoundaryRecording = false;
+        });
+
+        ToggleRecordingCommand = new RelayCommand(() =>
+        {
+            if (IsBoundaryRecording)
+            {
+                _boundaryRecordingService.PauseRecording();
+                IsBoundaryRecording = false;
+                StatusMessage = "Recording paused";
+            }
+            else
+            {
+                _boundaryRecordingService.ResumeRecording();
+                IsBoundaryRecording = true;
+                StatusMessage = "Recording boundary - drive around the perimeter";
             }
         });
 
@@ -1319,20 +1431,201 @@ public class MainViewModel : ReactiveObject
             _boundaryRecordingService.AddPoint(Easting, Northing, Heading * Math.PI / 180.0);
         });
 
-        DeleteBoundaryCommand = new RelayCommand(() =>
-        {
-            _mapService.SetBoundary(null);
-            StatusMessage = "Boundary deleted";
-        });
+        DeleteBoundaryCommand = new RelayCommand(DeleteSelectedBoundary);
 
         ImportKmlBoundaryCommand = new AsyncRelayCommand(async () =>
         {
-            var result = await _dialogService.ShowKmlImportDialogAsync(_settingsService.Settings.FieldsDirectory);
-            if (result?.ImportedBoundary != null)
+            // Must have a field open
+            if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                _mapService.SetBoundary(result.ImportedBoundary);
-                StatusMessage = "Boundary imported from KML";
+                StatusMessage = "Open a field first before importing a boundary";
+                return;
             }
+
+            var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+            var result = await _dialogService.ShowKmlImportDialogAsync(_settingsService.Settings.FieldsDirectory, fieldPath);
+
+            if (result != null && result.BoundaryPoints.Count > 0)
+            {
+                try
+                {
+                    // Load existing boundary or create new one
+                    var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+
+                    // Convert WGS84 boundary points to local coordinates
+                    var origin = new Wgs84(result.CenterLatitude, result.CenterLongitude);
+                    var sharedProps = new SharedFieldProperties();
+                    var localPlane = new LocalPlane(origin, sharedProps);
+
+                    var outerPolygon = new BoundaryPolygon();
+
+                    foreach (var (lat, lon) in result.BoundaryPoints)
+                    {
+                        var wgs84 = new Wgs84(lat, lon);
+                        var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
+                        outerPolygon.Points.Add(new BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
+                    }
+
+                    boundary.OuterBoundary = outerPolygon;
+
+                    // Save boundary
+                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
+
+                    // Update map
+                    _mapService.SetBoundary(boundary);
+
+                    // Refresh the boundary list
+                    RefreshBoundaryList();
+
+                    StatusMessage = $"Boundary imported from KML ({outerPolygon.Points.Count} points)";
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Error importing KML boundary: {ex.Message}";
+                }
+            }
+        });
+
+        DrawMapBoundaryCommand = new AsyncRelayCommand(async () =>
+        {
+            // Must have a field open
+            if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+            {
+                StatusMessage = "Open a field first to add boundary";
+                return;
+            }
+
+            var result = await _dialogService.ShowMapBoundaryDialogAsync(Latitude, Longitude);
+
+            if (result != null && (result.BoundaryPoints.Count >= 3 || result.HasBackgroundImage))
+            {
+                try
+                {
+                    var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+                    LocalPlane? localPlane = null;
+
+                    if (result.BoundaryPoints.Count >= 3)
+                    {
+                        // Calculate center of boundary points
+                        double sumLat = 0, sumLon = 0;
+                        foreach (var point in result.BoundaryPoints)
+                        {
+                            sumLat += point.Latitude;
+                            sumLon += point.Longitude;
+                        }
+                        double centerLat = sumLat / result.BoundaryPoints.Count;
+                        double centerLon = sumLon / result.BoundaryPoints.Count;
+
+                        var origin = new Wgs84(centerLat, centerLon);
+                        var sharedProps = new SharedFieldProperties();
+                        localPlane = new LocalPlane(origin, sharedProps);
+                    }
+                    else if (result.HasBackgroundImage)
+                    {
+                        // Use background image center as origin
+                        double centerLat = (result.NorthWestLat + result.SouthEastLat) / 2;
+                        double centerLon = (result.NorthWestLon + result.SouthEastLon) / 2;
+
+                        var origin = new Wgs84(centerLat, centerLon);
+                        var sharedProps = new SharedFieldProperties();
+                        localPlane = new LocalPlane(origin, sharedProps);
+                    }
+
+                    // Process boundary points if present
+                    if (result.BoundaryPoints.Count >= 3 && localPlane != null)
+                    {
+                        var boundary = new Boundary();
+                        var outerPolygon = new BoundaryPolygon();
+
+                        foreach (var point in result.BoundaryPoints)
+                        {
+                            var wgs84 = new Wgs84(point.Latitude, point.Longitude);
+                            var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
+                            outerPolygon.Points.Add(new BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
+                        }
+
+                        boundary.OuterBoundary = outerPolygon;
+
+                        // Save boundary
+                        _boundaryFileService.SaveBoundary(boundary, fieldPath);
+
+                        // Update map
+                        _mapService.SetBoundary(boundary);
+                        CenterMapOnBoundary(boundary);
+
+                        // Refresh the boundary list
+                        RefreshBoundaryList();
+                    }
+
+                    // Process background image if present
+                    if (result.HasBackgroundImage && !string.IsNullOrEmpty(result.BackgroundImagePath) && localPlane != null)
+                    {
+                        // Convert WGS84 corners to local coordinates
+                        var nwWgs84 = new Wgs84(result.NorthWestLat, result.NorthWestLon);
+                        var seWgs84 = new Wgs84(result.SouthEastLat, result.SouthEastLon);
+
+                        var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs84);
+                        var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs84);
+
+                        // Copy background image to field directory
+                        var destPngPath = Path.Combine(fieldPath, "BackPic.png");
+                        File.Copy(result.BackgroundImagePath, destPngPath, overwrite: true);
+
+                        // Save geo-reference file
+                        var geoFilePath = Path.Combine(fieldPath, "BackPic.txt");
+                        using (var writer = new StreamWriter(geoFilePath))
+                        {
+                            writer.WriteLine("$BackPic");
+                            writer.WriteLine("true");
+                            writer.WriteLine(seLocal.Easting.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                            writer.WriteLine(nwLocal.Easting.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                            writer.WriteLine(nwLocal.Northing.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                            writer.WriteLine(seLocal.Northing.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        }
+
+                        // Set the background image in the map
+                        _mapService.SetBackgroundImage(destPngPath, nwLocal.Easting, nwLocal.Northing, seLocal.Easting, seLocal.Northing);
+                    }
+
+                    // Build status message
+                    var msgParts = new System.Collections.Generic.List<string>();
+                    if (result.BoundaryPoints.Count >= 3)
+                        msgParts.Add($"boundary ({result.BoundaryPoints.Count} pts)");
+                    if (result.HasBackgroundImage)
+                        msgParts.Add("background image");
+
+                    StatusMessage = $"Imported from satellite map: {string.Join(" + ", msgParts)}";
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Error importing: {ex.Message}";
+                }
+            }
+        });
+
+        BuildFromTracksCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Build boundary from tracks not yet implemented";
+        });
+
+        DriveAroundFieldCommand = new RelayCommand(() =>
+        {
+            // Must have a field open
+            if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+            {
+                StatusMessage = "Open a field first before recording a boundary";
+                return;
+            }
+
+            // Hide boundary panel, show the player panel
+            IsBoundaryPanelVisible = false;
+            IsBoundaryPlayerPanelVisible = true;
+
+            // Initialize recording service for a new boundary (paused state)
+            _boundaryRecordingService.StartRecording(BoundaryType.Outer);
+            _boundaryRecordingService.PauseRecording();
+
+            StatusMessage = "Drive around the field boundary. Click Record to start.";
         });
     }
 
@@ -1352,4 +1645,125 @@ public class MainViewModel : ReactiveObject
         _mapService.PanTo(centerE, centerN);
     }
 
+    /// <summary>
+    /// Refresh the boundary list from the current field's boundary file
+    /// </summary>
+    public void RefreshBoundaryList()
+    {
+        BoundaryItems.Clear();
+        SelectedBoundaryIndex = -1;
+
+        if (string.IsNullOrEmpty(CurrentFieldName)) return;
+
+        var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+        var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+
+        if (boundary == null) return;
+
+        int index = 0;
+
+        // Add outer boundary if exists
+        if (boundary.OuterBoundary != null && boundary.OuterBoundary.IsValid)
+        {
+            BoundaryItems.Add(new BoundaryListItem
+            {
+                Index = index++,
+                BoundaryType = "Outer",
+                AreaAcres = boundary.OuterBoundary.AreaAcres,
+                IsDriveThrough = boundary.OuterBoundary.IsDriveThrough
+            });
+        }
+
+        // Add inner boundaries
+        for (int i = 0; i < boundary.InnerBoundaries.Count; i++)
+        {
+            var inner = boundary.InnerBoundaries[i];
+            if (inner.IsValid)
+            {
+                BoundaryItems.Add(new BoundaryListItem
+                {
+                    Index = index++,
+                    BoundaryType = $"Inner {i + 1}",
+                    AreaAcres = inner.AreaAcres,
+                    IsDriveThrough = inner.IsDriveThrough
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Delete the selected boundary from the field
+    /// </summary>
+    private void DeleteSelectedBoundary()
+    {
+        if (SelectedBoundaryIndex < 0)
+        {
+            StatusMessage = "Select a boundary to delete";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(CurrentFieldName))
+        {
+            StatusMessage = "No field open";
+            return;
+        }
+
+        var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+        var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+
+        if (boundary == null) return;
+
+        int currentIndex = 0;
+        bool deleted = false;
+
+        // Check if outer boundary is selected
+        if (boundary.OuterBoundary != null && boundary.OuterBoundary.IsValid)
+        {
+            if (currentIndex == SelectedBoundaryIndex)
+            {
+                boundary.OuterBoundary = null;
+                deleted = true;
+            }
+            currentIndex++;
+        }
+
+        // Check inner boundaries
+        if (!deleted)
+        {
+            for (int i = 0; i < boundary.InnerBoundaries.Count; i++)
+            {
+                if (boundary.InnerBoundaries[i].IsValid)
+                {
+                    if (currentIndex == SelectedBoundaryIndex)
+                    {
+                        boundary.InnerBoundaries.RemoveAt(i);
+                        deleted = true;
+                        break;
+                    }
+                    currentIndex++;
+                }
+            }
+        }
+
+        if (deleted)
+        {
+            _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            RefreshBoundaryList();
+            _mapService.SetBoundary(boundary);
+            StatusMessage = "Boundary deleted";
+        }
+    }
+}
+
+/// <summary>
+/// View model item for boundary list display
+/// </summary>
+public class BoundaryListItem
+{
+    public int Index { get; set; }
+    public string BoundaryType { get; set; } = string.Empty;
+    public double AreaAcres { get; set; }
+    public bool IsDriveThrough { get; set; }
+    public string AreaDisplay => $"{AreaAcres:F2} Ac";
+    public string DriveThruDisplay => IsDriveThrough ? "Yes" : "--";
 }

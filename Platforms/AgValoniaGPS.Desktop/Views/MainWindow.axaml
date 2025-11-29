@@ -1108,15 +1108,15 @@
                             <Image Source="/Assets/Icons/BoundaryLoadFromGE.png" Width="32" Height="32"/>
                         </Button>
                         <Button x:Name="BtnBingMap" Grid.Column="2" Classes="ModernButton" Margin="2" Height="50"
-                                ToolTip.Tip="Draw boundary on satellite map">
+                                Command="{Binding DrawMapBoundaryCommand}" ToolTip.Tip="Draw boundary on satellite map">
                             <Image Source="/Assets/Icons/BoundaryByMap.png" Width="32" Height="32"/>
                         </Button>
                         <Button x:Name="BtnBuildFromTracks" Grid.Column="3" Classes="ModernButton" Margin="2" Height="50"
-                                ToolTip.Tip="Build boundary from driven tracks">
+                                Command="{Binding BuildFromTracksCommand}" ToolTip.Tip="Build boundary from driven tracks">
                             <Image Source="/Assets/Icons/BoundaryFromTracks.png" Width="32" Height="32"/>
                         </Button>
                         <Button x:Name="BtnDriveAroundField" Grid.Column="4" Classes="ModernButton" Margin="2" Height="50"
-                                Command="{Binding StartBoundaryRecordingCommand}" ToolTip.Tip="Drive around field to record boundary">
+                                Command="{Binding DriveAroundFieldCommand}" ToolTip.Tip="Drive around field to record boundary">
                             <Image Source="/Assets/Icons/ST_SteerTab.png" Width="32" Height="32"/>
                         </Button>
                         <Button x:Name="BtnAcceptBoundary" Grid.Column="5" Classes="ModernButton" Margin="2" Height="50"
@@ -1137,11 +1137,34 @@
 
                     <!-- Boundary List -->
                     <Border Background="#DD1a252f" Margin="4,0,4,4" MinHeight="60" MaxHeight="150">
-                        <ScrollViewer>
-                            <StackPanel x:Name="BoundaryListPanel" Spacing="1">
-                                <!-- Boundary items will be populated dynamically -->
-                            </StackPanel>
-                        </ScrollViewer>
+                        <ListBox ItemsSource="{Binding BoundaryItems}"
+                                 SelectedIndex="{Binding SelectedBoundaryIndex}"
+                                 Background="Transparent"
+                                 BorderThickness="0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,*,*">
+                                        <TextBlock Grid.Column="0" Text="{Binding BoundaryType}"
+                                                   HorizontalAlignment="Center" Foreground="White" Padding="8,6"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding AreaDisplay}"
+                                                   HorizontalAlignment="Center" Foreground="White" Padding="8,6"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding DriveThruDisplay}"
+                                                   HorizontalAlignment="Center" Padding="8,6"
+                                                   Foreground="{Binding IsDriveThrough, Converter={StaticResource BoolToColorConverter}}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                            <ListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="Background" Value="#334C566A"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0,1,0,0"/>
+                                </Style>
+                                <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#3498DB"/>
+                                </Style>
+                            </ListBox.Styles>
+                        </ListBox>
                     </Border>
 
                     <!-- Recording Status (shown when recording) -->
@@ -1220,7 +1243,7 @@
                     Classes="FloatingPanel"
                     ZIndex="25"
                     Canvas.Left="100" Canvas.Top="100"
-                    IsVisible="False"
+                    IsVisible="{Binding IsBoundaryPlayerPanelVisible}"
                     IsHitTestVisible="True"
                     MinWidth="250">
                 <StackPanel Spacing="4">
@@ -1308,12 +1331,12 @@
                         <!-- Row 3: Points display | Area display -->
                         <StackPanel Grid.Column="0" Grid.Row="3" Margin="4">
                             <TextBlock Text="Points:" Foreground="#888" FontSize="12"/>
-                            <TextBlock x:Name="BoundaryPlayerPointsLabel" Text="0" Foreground="White"
+                            <TextBlock Text="{Binding BoundaryPointCount}" Foreground="White"
                                        FontSize="16" FontWeight="Bold"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Grid.Row="3" Margin="4">
                             <TextBlock Text="Area:" Foreground="#888" FontSize="12"/>
-                            <TextBlock x:Name="BoundaryPlayerAreaLabel" Text="0" Foreground="White"
+                            <TextBlock Text="{Binding BoundaryAreaHectares, StringFormat={}{0:F2} Ha}" Foreground="White"
                                        FontSize="16" FontWeight="Bold"/>
                         </StackPanel>
 
@@ -1324,9 +1347,14 @@
                             <Image Source="/Assets/Icons/OK64.png" Width="48" Height="48"/>
                         </Button>
                         <Button x:Name="BtnBoundaryPausePlay" Grid.Column="1" Grid.Row="4" Classes="ModernButton"
-                                Margin="2" Height="64" Command="{Binding PauseBoundaryRecordingCommand}"
+                                Margin="2" Height="64" Command="{Binding ToggleRecordingCommand}"
                                 ToolTip.Tip="Start/Pause recording">
-                            <Image x:Name="BoundaryPausePlayImage" Source="/Assets/Icons/BoundaryRecord.png" Width="48" Height="48"/>
+                            <Panel>
+                                <Image Source="/Assets/Icons/BoundaryRecord.png" Width="48" Height="48"
+                                       IsVisible="{Binding !IsBoundaryRecording}"/>
+                                <Image Source="/Assets/Icons/boundaryPause.png" Width="48" Height="48"
+                                       IsVisible="{Binding IsBoundaryRecording}"/>
+                            </Panel>
                         </Button>
                     </Grid>
                 </StackPanel>
