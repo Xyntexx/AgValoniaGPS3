@@ -254,101 +254,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BtnNtripConnect_Click(object? sender, RoutedEventArgs e)
-    {
-        if (ViewModel != null)
-        {
-            await ViewModel.ConnectToNtripAsync();
-        }
-    }
+    // Removed: BtnNtripConnect_Click, BtnNtripDisconnect_Click, BtnDataIO_Click
+    // These are now handled by ViewModel commands
 
-    private async void BtnNtripDisconnect_Click(object? sender, RoutedEventArgs e)
-    {
-        if (ViewModel != null)
-        {
-            await ViewModel.DisconnectFromNtripAsync();
-        }
-    }
-
-    private void BtnDataIO_Click(object? sender, RoutedEventArgs e)
-    {
-        var dialog = new DataIODialog
-        {
-            DataContext = ViewModel
-        };
-        dialog.ShowDialog(this);
-    }
-
-    private async void BtnEnterSimCoords_Click(object? sender, RoutedEventArgs e)
-    {
-        if (ViewModel == null) return;
-
-        // Check if simulator is enabled
-        if (!ViewModel.IsSimulatorEnabled)
-        {
-            // Show message that simulator must be enabled first
-            var messageBox = new Window
-            {
-                Title = "Simulator Not Enabled",
-                Width = 400,
-                Height = 200,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                CanResize = false,
-                Background = new SolidColorBrush(Color.FromRgb(30, 30, 30))
-            };
-
-            var stack = new StackPanel
-            {
-                Margin = new Thickness(24),
-                Spacing = 16
-            };
-
-            stack.Children.Add(new TextBlock
-            {
-                Text = "Please enable the simulator first.",
-                FontSize = 16,
-                Foreground = Brushes.White,
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap
-            });
-
-            var okButton = new Button
-            {
-                Content = "OK",
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                Padding = new Thickness(24, 8),
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 212)),
-                Foreground = Brushes.White,
-                BorderThickness = new Thickness(0)
-            };
-            okButton.Click += (s, args) => messageBox.Close();
-            stack.Children.Add(okButton);
-
-            messageBox.Content = stack;
-            await messageBox.ShowDialog(this);
-            return;
-        }
-
-        // Get current simulator position
-        var currentPos = ViewModel.GetSimulatorPosition();
-
-        // Open the dialog
-        var dialog = new SimCoordsDialog(currentPos.Latitude, currentPos.Longitude);
-        await dialog.ShowDialog(this);
-
-        // If OK was clicked, update simulator coordinates
-        if (dialog.DialogResult)
-        {
-            ViewModel.SetSimulatorCoordinates(dialog.Latitude, dialog.Longitude);
-        }
-    }
-
-    private void Btn3DToggle_Click(object? sender, RoutedEventArgs e)
-    {
-        if (MapControl != null)
-        {
-            MapControl.Toggle3DMode();
-        }
-    }
+    // Removed: BtnEnterSimCoords_Click, Btn3DToggle_Click
+    // These are now handled by ViewModel commands (ShowSimCoordsDialogCommand, Toggle3DModeCommand)
 
     private async void BtnFields_Click(object? sender, RoutedEventArgs e)
     {

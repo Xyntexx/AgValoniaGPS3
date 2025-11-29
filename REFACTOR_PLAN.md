@@ -146,9 +146,17 @@ Target: < 100 lines
 
 ### Progress
 - [x] XAML buttons now use Command bindings
-- [ ] Remove unused click handlers (dead code)
+- [x] Started removing unused click handlers (removed BtnNtripConnect/Disconnect, BtnDataIO, BtnEnterSimCoords, Btn3DToggle)
+- [ ] Continue removing unused click handlers (BtnFields, BtnNewField, BtnOpenField, BtnCloseField, etc.)
 - [ ] Apply DraggableBehavior to panels to remove drag handlers
 - [ ] Final cleanup to reach target line count
+
+**Handlers still in XAML (to keep):**
+- `BtnTestOSK_Click` - Test button
+- `BtnBoundaryOffset_Click` - Numeric keypad dialog
+- All `*Panel_PointerPressed/Moved/Released` - Panel dragging (until DraggableBehavior is applied)
+- All `MapOverlay_Pointer*` - Map interaction
+- All `SectionControl_Pointer*` - Section control dragging
 
 ---
 
