@@ -144,6 +144,12 @@ After all above, MainWindow.axaml.cs should contain only:
 
 Target: < 100 lines
 
+### Progress
+- [x] XAML buttons now use Command bindings
+- [ ] Remove unused click handlers (dead code)
+- [ ] Apply DraggableBehavior to panels to remove drag handlers
+- [ ] Final cleanup to reach target line count
+
 ---
 
 ## Phase 8: Create Shared View Project
