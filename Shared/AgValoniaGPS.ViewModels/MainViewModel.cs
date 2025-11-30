@@ -39,6 +39,21 @@ public class MainViewModel : ReactiveObject
     private int _satelliteCount;
     private string _fixQuality = "No Fix";
     private string _networkStatus = "Disconnected";
+
+    // Guidance/Steering status
+    private double _crossTrackError;
+    private string _currentGuidanceLine = "1L";
+    private bool _isAutoSteerActive;
+    private int _activeSections;
+
+    // Section states
+    private bool _section1Active;
+    private bool _section2Active;
+    private bool _section3Active;
+    private bool _section4Active;
+    private bool _section5Active;
+    private bool _section6Active;
+    private bool _section7Active;
     // Hello status (connection health)
     private bool _isAutoSteerHelloOk;
     private bool _isMachineHelloOk;
@@ -292,6 +307,74 @@ public class MainViewModel : ReactiveObject
     {
         get => _networkStatus;
         set => this.RaiseAndSetIfChanged(ref _networkStatus, value);
+    }
+
+    // Guidance/Steering properties
+    public double CrossTrackError
+    {
+        get => _crossTrackError;
+        set => this.RaiseAndSetIfChanged(ref _crossTrackError, value);
+    }
+
+    public string CurrentGuidanceLine
+    {
+        get => _currentGuidanceLine;
+        set => this.RaiseAndSetIfChanged(ref _currentGuidanceLine, value);
+    }
+
+    public bool IsAutoSteerActive
+    {
+        get => _isAutoSteerActive;
+        set => this.RaiseAndSetIfChanged(ref _isAutoSteerActive, value);
+    }
+
+    public int ActiveSections
+    {
+        get => _activeSections;
+        set => this.RaiseAndSetIfChanged(ref _activeSections, value);
+    }
+
+    // Section states
+    public bool Section1Active
+    {
+        get => _section1Active;
+        set => this.RaiseAndSetIfChanged(ref _section1Active, value);
+    }
+
+    public bool Section2Active
+    {
+        get => _section2Active;
+        set => this.RaiseAndSetIfChanged(ref _section2Active, value);
+    }
+
+    public bool Section3Active
+    {
+        get => _section3Active;
+        set => this.RaiseAndSetIfChanged(ref _section3Active, value);
+    }
+
+    public bool Section4Active
+    {
+        get => _section4Active;
+        set => this.RaiseAndSetIfChanged(ref _section4Active, value);
+    }
+
+    public bool Section5Active
+    {
+        get => _section5Active;
+        set => this.RaiseAndSetIfChanged(ref _section5Active, value);
+    }
+
+    public bool Section6Active
+    {
+        get => _section6Active;
+        set => this.RaiseAndSetIfChanged(ref _section6Active, value);
+    }
+
+    public bool Section7Active
+    {
+        get => _section7Active;
+        set => this.RaiseAndSetIfChanged(ref _section7Active, value);
     }
 
     // AutoSteer Hello and Data properties

@@ -27,4 +27,11 @@ public partial class AppDelegate : AvaloniaAppDelegate<App>
             throw;
         }
     }
+
+    // Force landscape orientation only
+    [Export("application:supportedInterfaceOrientationsForWindow:")]
+    public UIInterfaceOrientationMask GetSupportedInterfaceOrientations(UIApplication application, UIWindow forWindow)
+    {
+        return UIInterfaceOrientationMask.Landscape;
+    }
 }

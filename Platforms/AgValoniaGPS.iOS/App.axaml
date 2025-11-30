@@ -9,6 +9,9 @@
         <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
         <converters:BoolToStatusConverter x:Key="BoolToStatusConverter"/>
         <converters:FixQualityToColorConverter x:Key="FixQualityToColorConverter"/>
+        <converters:BoolToSteerColorConverter x:Key="BoolToSteerColorConverter"/>
+        <converters:BoolToSteerTextConverter x:Key="BoolToSteerTextConverter"/>
+        <converters:BoolToSectionColorConverter x:Key="BoolToSectionColorConverter"/>
     </Application.Resources>
 
     <Application.DataTemplates>
