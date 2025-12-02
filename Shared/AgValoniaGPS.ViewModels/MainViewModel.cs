@@ -899,6 +899,174 @@ public class MainViewModel : ReactiveObject
     public ICommand? CancelNewFieldDialogCommand { get; private set; }
     public ICommand? ConfirmNewFieldDialogCommand { get; private set; }
 
+    // From Existing Field Dialog properties
+    private bool _isFromExistingFieldDialogVisible;
+    public bool IsFromExistingFieldDialogVisible
+    {
+        get => _isFromExistingFieldDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isFromExistingFieldDialogVisible, value);
+    }
+
+    private string _fromExistingFieldName = string.Empty;
+    public string FromExistingFieldName
+    {
+        get => _fromExistingFieldName;
+        set => this.RaiseAndSetIfChanged(ref _fromExistingFieldName, value);
+    }
+
+    private FieldSelectionItem? _fromExistingSelectedField;
+    public FieldSelectionItem? FromExistingSelectedField
+    {
+        get => _fromExistingSelectedField;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _fromExistingSelectedField, value);
+            if (value != null)
+            {
+                // Auto-populate field name when selection changes
+                FromExistingFieldName = value.Name;
+            }
+        }
+    }
+
+    // Copy options for FromExistingField
+    private bool _copyFlags = true;
+    public bool CopyFlags
+    {
+        get => _copyFlags;
+        set => this.RaiseAndSetIfChanged(ref _copyFlags, value);
+    }
+
+    private bool _copyMapping = true;
+    public bool CopyMapping
+    {
+        get => _copyMapping;
+        set => this.RaiseAndSetIfChanged(ref _copyMapping, value);
+    }
+
+    private bool _copyHeadland = true;
+    public bool CopyHeadland
+    {
+        get => _copyHeadland;
+        set => this.RaiseAndSetIfChanged(ref _copyHeadland, value);
+    }
+
+    private bool _copyLines = true;
+    public bool CopyLines
+    {
+        get => _copyLines;
+        set => this.RaiseAndSetIfChanged(ref _copyLines, value);
+    }
+
+    public ICommand? CancelFromExistingFieldDialogCommand { get; private set; }
+    public ICommand? ConfirmFromExistingFieldDialogCommand { get; private set; }
+    public ICommand? AppendVehicleNameCommand { get; private set; }
+    public ICommand? AppendDateCommand { get; private set; }
+    public ICommand? AppendTimeCommand { get; private set; }
+    public ICommand? BackspaceFieldNameCommand { get; private set; }
+    public ICommand? ToggleCopyFlagsCommand { get; private set; }
+    public ICommand? ToggleCopyMappingCommand { get; private set; }
+    public ICommand? ToggleCopyHeadlandCommand { get; private set; }
+    public ICommand? ToggleCopyLinesCommand { get; private set; }
+
+    // KML Import Dialog properties
+    private bool _isKmlImportDialogVisible;
+    public bool IsKmlImportDialogVisible
+    {
+        get => _isKmlImportDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isKmlImportDialogVisible, value);
+    }
+
+    public ObservableCollection<KmlFileItem> AvailableKmlFiles { get; } = new();
+
+    private KmlFileItem? _selectedKmlFile;
+    public KmlFileItem? SelectedKmlFile
+    {
+        get => _selectedKmlFile;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _selectedKmlFile, value);
+            if (value != null)
+            {
+                KmlImportFieldName = Path.GetFileNameWithoutExtension(value.Name);
+                ParseKmlFile(value.FullPath);
+            }
+        }
+    }
+
+    private string _kmlImportFieldName = string.Empty;
+    public string KmlImportFieldName
+    {
+        get => _kmlImportFieldName;
+        set => this.RaiseAndSetIfChanged(ref _kmlImportFieldName, value);
+    }
+
+    private int _kmlBoundaryPointCount;
+    public int KmlBoundaryPointCount
+    {
+        get => _kmlBoundaryPointCount;
+        set => this.RaiseAndSetIfChanged(ref _kmlBoundaryPointCount, value);
+    }
+
+    private double _kmlCenterLatitude;
+    public double KmlCenterLatitude
+    {
+        get => _kmlCenterLatitude;
+        set => this.RaiseAndSetIfChanged(ref _kmlCenterLatitude, value);
+    }
+
+    private double _kmlCenterLongitude;
+    public double KmlCenterLongitude
+    {
+        get => _kmlCenterLongitude;
+        set => this.RaiseAndSetIfChanged(ref _kmlCenterLongitude, value);
+    }
+
+    private List<(double Latitude, double Longitude)> _kmlBoundaryPoints = new();
+
+    public ICommand? CancelKmlImportDialogCommand { get; private set; }
+    public ICommand? ConfirmKmlImportDialogCommand { get; private set; }
+    public ICommand? KmlAppendDateCommand { get; private set; }
+    public ICommand? KmlAppendTimeCommand { get; private set; }
+    public ICommand? KmlBackspaceFieldNameCommand { get; private set; }
+
+    // ISO-XML Import Dialog properties
+    private bool _isIsoXmlImportDialogVisible;
+    public bool IsIsoXmlImportDialogVisible
+    {
+        get => _isIsoXmlImportDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isIsoXmlImportDialogVisible, value);
+    }
+
+    public ObservableCollection<IsoXmlFileItem> AvailableIsoXmlFiles { get; } = new();
+
+    private IsoXmlFileItem? _selectedIsoXmlFile;
+    public IsoXmlFileItem? SelectedIsoXmlFile
+    {
+        get => _selectedIsoXmlFile;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _selectedIsoXmlFile, value);
+            if (value != null)
+            {
+                IsoXmlImportFieldName = value.Name;
+            }
+        }
+    }
+
+    private string _isoXmlImportFieldName = string.Empty;
+    public string IsoXmlImportFieldName
+    {
+        get => _isoXmlImportFieldName;
+        set => this.RaiseAndSetIfChanged(ref _isoXmlImportFieldName, value);
+    }
+
+    public ICommand? CancelIsoXmlImportDialogCommand { get; private set; }
+    public ICommand? ConfirmIsoXmlImportDialogCommand { get; private set; }
+    public ICommand? IsoXmlAppendDateCommand { get; private set; }
+    public ICommand? IsoXmlAppendTimeCommand { get; private set; }
+    public ICommand? IsoXmlBackspaceFieldNameCommand { get; private set; }
+
     // iOS Modal Sheet Visibility Properties
     private bool _isFileMenuVisible;
     public bool IsFileMenuVisible
@@ -1705,44 +1873,411 @@ public class MainViewModel : ReactiveObject
             }
         });
 
-        ShowFromExistingFieldDialogCommand = new AsyncRelayCommand(async () =>
+        ShowFromExistingFieldDialogCommand = new RelayCommand(() =>
         {
-            var result = await _dialogService.ShowFromExistingFieldDialogAsync(_settingsService.Settings.FieldsDirectory);
-            if (result != null)
+            // Populate fields list (reuse same list as field selection)
+            var fieldsDir = _settingsService.Settings.FieldsDirectory;
+            if (string.IsNullOrWhiteSpace(fieldsDir))
             {
-                CurrentFieldName = result.NewFieldName;
+                fieldsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "AgValoniaGPS", "Fields");
+            }
+            _fieldSelectionDirectory = fieldsDir;
+            PopulateAvailableFields(fieldsDir);
+
+            // Reset copy options
+            CopyFlags = true;
+            CopyMapping = true;
+            CopyHeadland = true;
+            CopyLines = true;
+            FromExistingFieldName = string.Empty;
+            FromExistingSelectedField = null;
+
+            // Pre-select first field if available
+            if (AvailableFields.Count > 0)
+            {
+                FromExistingSelectedField = AvailableFields[0];
+            }
+
+            IsFromExistingFieldDialogVisible = true;
+        });
+
+        CancelFromExistingFieldDialogCommand = new RelayCommand(() =>
+        {
+            IsFromExistingFieldDialogVisible = false;
+            FromExistingSelectedField = null;
+            FromExistingFieldName = string.Empty;
+        });
+
+        ConfirmFromExistingFieldDialogCommand = new RelayCommand(() =>
+        {
+            if (FromExistingSelectedField == null)
+            {
+                StatusMessage = "Please select a field to copy from";
+                return;
+            }
+
+            var newFieldName = FromExistingFieldName.Trim();
+            if (string.IsNullOrWhiteSpace(newFieldName))
+            {
+                StatusMessage = "Please enter a field name";
+                return;
+            }
+
+            // Get the fields directory
+            var fieldsDir = _settingsService.Settings.FieldsDirectory;
+            if (string.IsNullOrWhiteSpace(fieldsDir))
+            {
+                fieldsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "AgValoniaGPS", "Fields");
+            }
+
+            var sourcePath = Path.Combine(fieldsDir, FromExistingSelectedField.Name);
+            var newFieldPath = Path.Combine(fieldsDir, newFieldName);
+
+            // Check if field already exists (unless same name as source)
+            if (Directory.Exists(newFieldPath) && newFieldName != FromExistingSelectedField.Name)
+            {
+                StatusMessage = $"Field '{newFieldName}' already exists";
+                return;
+            }
+
+            try
+            {
+                // Create the new field directory
+                Directory.CreateDirectory(newFieldPath);
+
+                // Copy field.origin if exists
+                var originFile = Path.Combine(sourcePath, "field.origin");
+                if (File.Exists(originFile))
+                {
+                    File.Copy(originFile, Path.Combine(newFieldPath, "field.origin"), true);
+                }
+
+                // Copy boundary
+                var boundaryFile = Path.Combine(sourcePath, "boundary.json");
+                if (File.Exists(boundaryFile))
+                {
+                    File.Copy(boundaryFile, Path.Combine(newFieldPath, "boundary.json"), true);
+                }
+
+                // Copy flags if enabled
+                if (CopyFlags)
+                {
+                    var flagsFile = Path.Combine(sourcePath, "flags.json");
+                    if (File.Exists(flagsFile))
+                    {
+                        File.Copy(flagsFile, Path.Combine(newFieldPath, "flags.json"), true);
+                    }
+                }
+
+                // Copy mapping if enabled
+                if (CopyMapping)
+                {
+                    var mappingFile = Path.Combine(sourcePath, "mapping.json");
+                    if (File.Exists(mappingFile))
+                    {
+                        File.Copy(mappingFile, Path.Combine(newFieldPath, "mapping.json"), true);
+                    }
+                }
+
+                // Copy headland if enabled
+                if (CopyHeadland)
+                {
+                    var headlandFile = Path.Combine(sourcePath, "headland.json");
+                    if (File.Exists(headlandFile))
+                    {
+                        File.Copy(headlandFile, Path.Combine(newFieldPath, "headland.json"), true);
+                    }
+                }
+
+                // Copy lines if enabled
+                if (CopyLines)
+                {
+                    var linesFile = Path.Combine(sourcePath, "lines.json");
+                    if (File.Exists(linesFile))
+                    {
+                        File.Copy(linesFile, Path.Combine(newFieldPath, "lines.json"), true);
+                    }
+                    var abLinesFile = Path.Combine(sourcePath, "ablines.json");
+                    if (File.Exists(abLinesFile))
+                    {
+                        File.Copy(abLinesFile, Path.Combine(newFieldPath, "ablines.json"), true);
+                    }
+                }
+
+                // Set as current field
+                CurrentFieldName = newFieldName;
+                FieldsRootDirectory = fieldsDir;
                 IsFieldOpen = true;
-                StatusMessage = $"Created field from existing: {result.NewFieldName}";
+
+                // Save as last opened field
+                _settingsService.Settings.LastOpenedField = newFieldName;
+                _settingsService.Save();
+
+                IsFromExistingFieldDialogVisible = false;
+                IsJobMenuPanelVisible = false;
+                StatusMessage = $"Created field from existing: {newFieldName}";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Error creating field: {ex.Message}";
             }
         });
 
-        ShowIsoXmlImportDialogCommand = new AsyncRelayCommand(async () =>
+        AppendVehicleNameCommand = new RelayCommand(() =>
         {
-            var result = await _dialogService.ShowIsoXmlImportDialogAsync(_settingsService.Settings.FieldsDirectory);
-            if (result != null)
+            var vehicleName = _vehicleConfig?.Type.ToString() ?? "Vehicle";
+            if (!string.IsNullOrWhiteSpace(vehicleName))
             {
-                CurrentFieldName = result.FieldName;
-                IsFieldOpen = true;
-                if (result.ImportedBoundary != null)
-                {
-                    _mapService.SetBoundary(result.ImportedBoundary);
-                }
-                StatusMessage = $"Imported ISO-XML: {result.FieldName}";
+                FromExistingFieldName = (FromExistingFieldName + " " + vehicleName).Trim();
             }
         });
 
-        ShowKmlImportDialogCommand = new AsyncRelayCommand(async () =>
+        AppendDateCommand = new RelayCommand(() =>
         {
-            var result = await _dialogService.ShowKmlImportDialogAsync(_settingsService.Settings.FieldsDirectory);
-            if (result != null)
+            var dateStr = DateTime.Now.ToString("yyyy-MMM-dd");
+            FromExistingFieldName = (FromExistingFieldName + " " + dateStr).Trim();
+        });
+
+        AppendTimeCommand = new RelayCommand(() =>
+        {
+            var timeStr = DateTime.Now.ToString("HH-mm");
+            FromExistingFieldName = (FromExistingFieldName + " " + timeStr).Trim();
+        });
+
+        BackspaceFieldNameCommand = new RelayCommand(() =>
+        {
+            if (FromExistingFieldName.Length > 0)
             {
-                CurrentFieldName = result.FieldName;
-                IsFieldOpen = true;
-                if (result.ImportedBoundary != null)
+                FromExistingFieldName = FromExistingFieldName.Substring(0, FromExistingFieldName.Length - 1);
+            }
+        });
+
+        ToggleCopyFlagsCommand = new RelayCommand(() => CopyFlags = !CopyFlags);
+        ToggleCopyMappingCommand = new RelayCommand(() => CopyMapping = !CopyMapping);
+        ToggleCopyHeadlandCommand = new RelayCommand(() => CopyHeadland = !CopyHeadland);
+        ToggleCopyLinesCommand = new RelayCommand(() => CopyLines = !CopyLines);
+
+        // KML Import Dialog
+        ShowKmlImportDialogCommand = new RelayCommand(() =>
+        {
+            PopulateAvailableKmlFiles();
+            KmlImportFieldName = string.Empty;
+            KmlBoundaryPointCount = 0;
+            KmlCenterLatitude = 0;
+            KmlCenterLongitude = 0;
+            _kmlBoundaryPoints.Clear();
+            SelectedKmlFile = null;
+
+            // Pre-select first file if available
+            if (AvailableKmlFiles.Count > 0)
+            {
+                SelectedKmlFile = AvailableKmlFiles[0];
+            }
+
+            IsKmlImportDialogVisible = true;
+        });
+
+        CancelKmlImportDialogCommand = new RelayCommand(() =>
+        {
+            IsKmlImportDialogVisible = false;
+            SelectedKmlFile = null;
+            KmlImportFieldName = string.Empty;
+        });
+
+        ConfirmKmlImportDialogCommand = new RelayCommand(() =>
+        {
+            if (SelectedKmlFile == null)
+            {
+                StatusMessage = "Please select a KML file";
+                return;
+            }
+
+            var newFieldName = KmlImportFieldName.Trim();
+            if (string.IsNullOrWhiteSpace(newFieldName))
+            {
+                StatusMessage = "Please enter a field name";
+                return;
+            }
+
+            if (_kmlBoundaryPoints.Count < 3)
+            {
+                StatusMessage = "KML file must contain at least 3 boundary points";
+                return;
+            }
+
+            var fieldsDir = _settingsService.Settings.FieldsDirectory;
+            if (string.IsNullOrWhiteSpace(fieldsDir))
+            {
+                fieldsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "AgValoniaGPS", "Fields");
+            }
+
+            var newFieldPath = Path.Combine(fieldsDir, newFieldName);
+            if (Directory.Exists(newFieldPath))
+            {
+                StatusMessage = $"Field '{newFieldName}' already exists";
+                return;
+            }
+
+            try
+            {
+                // Create field directory
+                Directory.CreateDirectory(newFieldPath);
+
+                // Save origin coordinates
+                var originFile = Path.Combine(newFieldPath, "field.origin");
+                File.WriteAllText(originFile, $"{KmlCenterLatitude},{KmlCenterLongitude}");
+
+                // Create and save boundary
+                var origin = new Wgs84(KmlCenterLatitude, KmlCenterLongitude);
+                var sharedProps = new SharedFieldProperties();
+                var localPlane = new LocalPlane(origin, sharedProps);
+
+                var outerPolygon = new BoundaryPolygon();
+                foreach (var (lat, lon) in _kmlBoundaryPoints)
                 {
-                    _mapService.SetBoundary(result.ImportedBoundary);
+                    var wgs84 = new Wgs84(lat, lon);
+                    var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
+                    outerPolygon.Points.Add(new BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
                 }
-                StatusMessage = $"Imported KML: {result.FieldName}";
+
+                var boundary = new Boundary { OuterBoundary = outerPolygon };
+                _boundaryFileService.SaveBoundary(boundary, newFieldPath);
+
+                CurrentFieldName = newFieldName;
+                FieldsRootDirectory = fieldsDir;
+                IsFieldOpen = true;
+
+                _settingsService.Settings.LastOpenedField = newFieldName;
+                _settingsService.Save();
+
+                IsKmlImportDialogVisible = false;
+                IsJobMenuPanelVisible = false;
+                StatusMessage = $"Imported KML: {newFieldName}";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Error importing KML: {ex.Message}";
+            }
+        });
+
+        KmlAppendDateCommand = new RelayCommand(() =>
+        {
+            var dateStr = DateTime.Now.ToString("yyyy-MMM-dd");
+            KmlImportFieldName = (KmlImportFieldName + " " + dateStr).Trim();
+        });
+
+        KmlAppendTimeCommand = new RelayCommand(() =>
+        {
+            var timeStr = DateTime.Now.ToString("HH-mm");
+            KmlImportFieldName = (KmlImportFieldName + " " + timeStr).Trim();
+        });
+
+        KmlBackspaceFieldNameCommand = new RelayCommand(() =>
+        {
+            if (KmlImportFieldName.Length > 0)
+            {
+                KmlImportFieldName = KmlImportFieldName.Substring(0, KmlImportFieldName.Length - 1);
+            }
+        });
+
+        // ISO-XML Import Dialog
+        ShowIsoXmlImportDialogCommand = new RelayCommand(() =>
+        {
+            PopulateAvailableIsoXmlFiles();
+            IsoXmlImportFieldName = string.Empty;
+            SelectedIsoXmlFile = null;
+
+            if (AvailableIsoXmlFiles.Count > 0)
+            {
+                SelectedIsoXmlFile = AvailableIsoXmlFiles[0];
+            }
+
+            IsIsoXmlImportDialogVisible = true;
+        });
+
+        CancelIsoXmlImportDialogCommand = new RelayCommand(() =>
+        {
+            IsIsoXmlImportDialogVisible = false;
+            SelectedIsoXmlFile = null;
+            IsoXmlImportFieldName = string.Empty;
+        });
+
+        ConfirmIsoXmlImportDialogCommand = new RelayCommand(() =>
+        {
+            if (SelectedIsoXmlFile == null)
+            {
+                StatusMessage = "Please select an ISO-XML folder";
+                return;
+            }
+
+            var newFieldName = IsoXmlImportFieldName.Trim();
+            if (string.IsNullOrWhiteSpace(newFieldName))
+            {
+                StatusMessage = "Please enter a field name";
+                return;
+            }
+
+            var fieldsDir = _settingsService.Settings.FieldsDirectory;
+            if (string.IsNullOrWhiteSpace(fieldsDir))
+            {
+                fieldsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "AgValoniaGPS", "Fields");
+            }
+
+            var newFieldPath = Path.Combine(fieldsDir, newFieldName);
+            if (Directory.Exists(newFieldPath))
+            {
+                StatusMessage = $"Field '{newFieldName}' already exists";
+                return;
+            }
+
+            try
+            {
+                // TODO: Implement ISO-XML parsing when needed
+                // For now, just create the field directory
+                Directory.CreateDirectory(newFieldPath);
+
+                CurrentFieldName = newFieldName;
+                FieldsRootDirectory = fieldsDir;
+                IsFieldOpen = true;
+
+                _settingsService.Settings.LastOpenedField = newFieldName;
+                _settingsService.Save();
+
+                IsIsoXmlImportDialogVisible = false;
+                IsJobMenuPanelVisible = false;
+                StatusMessage = $"Imported ISO-XML: {newFieldName}";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Error importing ISO-XML: {ex.Message}";
+            }
+        });
+
+        IsoXmlAppendDateCommand = new RelayCommand(() =>
+        {
+            var dateStr = DateTime.Now.ToString("yyyy-MMM-dd");
+            IsoXmlImportFieldName = (IsoXmlImportFieldName + " " + dateStr).Trim();
+        });
+
+        IsoXmlAppendTimeCommand = new RelayCommand(() =>
+        {
+            var timeStr = DateTime.Now.ToString("HH-mm");
+            IsoXmlImportFieldName = (IsoXmlImportFieldName + " " + timeStr).Trim();
+        });
+
+        IsoXmlBackspaceFieldNameCommand = new RelayCommand(() =>
+        {
+            if (IsoXmlImportFieldName.Length > 0)
+            {
+                IsoXmlImportFieldName = IsoXmlImportFieldName.Substring(0, IsoXmlImportFieldName.Length - 1);
             }
         });
 
@@ -2337,6 +2872,184 @@ public class MainViewModel : ReactiveObject
             AvailableFields.Add(item);
         }
     }
+
+    /// <summary>
+    /// Populates the AvailableKmlFiles collection from the KML import directory.
+    /// Looks in Documents/AgValoniaGPS/Import for KML/KMZ files.
+    /// </summary>
+    private void PopulateAvailableKmlFiles()
+    {
+        AvailableKmlFiles.Clear();
+
+        var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrEmpty(documentsPath))
+        {
+            documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+        }
+
+        var importDir = Path.Combine(documentsPath, "AgValoniaGPS", "Import");
+
+        if (!Directory.Exists(importDir))
+        {
+            Directory.CreateDirectory(importDir);
+            return;
+        }
+
+        // Search for .kml and .kmz files
+        var kmlFiles = Directory.GetFiles(importDir, "*.kml", SearchOption.AllDirectories)
+            .Concat(Directory.GetFiles(importDir, "*.kmz", SearchOption.AllDirectories));
+
+        foreach (var filePath in kmlFiles)
+        {
+            var fileInfo = new FileInfo(filePath);
+            AvailableKmlFiles.Add(new KmlFileItem
+            {
+                Name = fileInfo.Name,
+                FullPath = filePath,
+                ModifiedDate = fileInfo.LastWriteTime,
+                FileSizeBytes = fileInfo.Length
+            });
+        }
+    }
+
+    /// <summary>
+    /// Parses a KML file to extract boundary coordinates.
+    /// </summary>
+    private void ParseKmlFile(string filePath)
+    {
+        _kmlBoundaryPoints.Clear();
+        KmlBoundaryPointCount = 0;
+        KmlCenterLatitude = 0;
+        KmlCenterLongitude = 0;
+
+        try
+        {
+            string? coordinates = null;
+            int startIndex;
+
+            using var reader = new StreamReader(filePath);
+            while (!reader.EndOfStream)
+            {
+                string? line = reader.ReadLine();
+                if (line == null) continue;
+
+                startIndex = line.IndexOf("<coordinates>");
+
+                if (startIndex != -1)
+                {
+                    // Found start of coordinates block
+                    while (true)
+                    {
+                        int endIndex = line.IndexOf("</coordinates>");
+
+                        if (endIndex == -1)
+                        {
+                            if (startIndex == -1)
+                                coordinates += " " + line.Substring(0);
+                            else
+                                coordinates += line.Substring(startIndex + 13);
+                        }
+                        else
+                        {
+                            if (startIndex == -1)
+                                coordinates += " " + line.Substring(0, endIndex);
+                            else
+                                coordinates += line.Substring(startIndex + 13, endIndex - (startIndex + 13));
+                            break;
+                        }
+
+                        line = reader.ReadLine();
+                        if (line == null) break;
+                        line = line.Trim();
+                        startIndex = -1;
+                    }
+
+                    if (coordinates == null) continue;
+
+                    // Parse coordinate pairs: format is "lon,lat,alt lon,lat,alt ..."
+                    char[] delimiterChars = { ' ', '\t', '\r', '\n' };
+                    string[] numberSets = coordinates.Split(delimiterChars, StringSplitOptions.RemoveEmptyEntries);
+
+                    if (numberSets.Length >= 3)
+                    {
+                        double sumLat = 0, sumLon = 0;
+                        int validPoints = 0;
+
+                        foreach (string item in numberSets)
+                        {
+                            if (item.Length < 3) continue;
+
+                            string[] parts = item.Split(',');
+                            if (parts.Length >= 2 &&
+                                double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double lon) &&
+                                double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double lat))
+                            {
+                                _kmlBoundaryPoints.Add((lat, lon));
+                                sumLat += lat;
+                                sumLon += lon;
+                                validPoints++;
+                            }
+                        }
+
+                        if (validPoints > 0)
+                        {
+                            KmlCenterLatitude = sumLat / validPoints;
+                            KmlCenterLongitude = sumLon / validPoints;
+                        }
+
+                        KmlBoundaryPointCount = validPoints;
+                    }
+
+                    // Only parse first coordinate block (outer boundary)
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error parsing KML: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Populates the AvailableIsoXmlFiles collection from the ISO-XML import directory.
+    /// Looks for TASKDATA.xml files in Documents/AgValoniaGPS/Import.
+    /// </summary>
+    private void PopulateAvailableIsoXmlFiles()
+    {
+        AvailableIsoXmlFiles.Clear();
+
+        var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrEmpty(documentsPath))
+        {
+            documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+        }
+
+        var importDir = Path.Combine(documentsPath, "AgValoniaGPS", "Import");
+
+        if (!Directory.Exists(importDir))
+        {
+            Directory.CreateDirectory(importDir);
+            return;
+        }
+
+        // Search for directories containing TASKDATA.xml
+        foreach (var dir in Directory.GetDirectories(importDir))
+        {
+            var taskDataFile = Path.Combine(dir, "TASKDATA.xml");
+            if (File.Exists(taskDataFile))
+            {
+                var dirInfo = new DirectoryInfo(dir);
+                AvailableIsoXmlFiles.Add(new IsoXmlFileItem
+                {
+                    Name = dirInfo.Name,
+                    FullPath = dir,
+                    ModifiedDate = dirInfo.LastWriteTime,
+                    IsTaskData = true
+                });
+            }
+        }
+    }
 }
 
 /// <summary>
@@ -2361,4 +3074,29 @@ public class FieldSelectionItem
     public string DirectoryPath { get; set; } = string.Empty;
     public double Distance { get; set; }
     public double Area { get; set; }
+}
+
+/// <summary>
+/// View model item for KML file list display
+/// </summary>
+public class KmlFileItem
+{
+    public string Name { get; set; } = string.Empty;
+    public string FullPath { get; set; } = string.Empty;
+    public DateTime ModifiedDate { get; set; }
+    public long FileSizeBytes { get; set; }
+    public string FileSizeDisplay => FileSizeBytes < 1024 ? $"{FileSizeBytes} B" :
+                                     FileSizeBytes < 1024 * 1024 ? $"{FileSizeBytes / 1024.0:F1} KB" :
+                                     $"{FileSizeBytes / (1024.0 * 1024.0):F1} MB";
+}
+
+/// <summary>
+/// View model item for ISO-XML file/folder list display
+/// </summary>
+public class IsoXmlFileItem
+{
+    public string Name { get; set; } = string.Empty;
+    public string FullPath { get; set; } = string.Empty;
+    public DateTime ModifiedDate { get; set; }
+    public bool IsTaskData { get; set; }
 }

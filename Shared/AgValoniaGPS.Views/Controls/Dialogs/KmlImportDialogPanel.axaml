@@ -1,0 +1,208 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AgValoniaGPS.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="AgValoniaGPS.Views.Controls.Dialogs.KmlImportDialogPanel"
+             x:DataType="vm:MainViewModel"
+             IsVisible="{Binding IsKmlImportDialogVisible}"
+             IsHitTestVisible="{Binding IsKmlImportDialogVisible}">
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.Header">
+            <Setter Property="Foreground" Value="#1ABC9C"/>
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style Selector="Button.DialogButton">
+            <Setter Property="Background" Value="#3498DB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.DialogButton:pointerover">
+            <Setter Property="Background" Value="#2980B9"/>
+        </Style>
+        <Style Selector="Button.CancelButton">
+            <Setter Property="Background" Value="#C0392B"/>
+        </Style>
+        <Style Selector="Button.CancelButton:pointerover">
+            <Setter Property="Background" Value="#E74C3C"/>
+        </Style>
+        <Style Selector="Button.OkButton">
+            <Setter Property="Background" Value="#27AE60"/>
+        </Style>
+        <Style Selector="Button.OkButton:pointerover">
+            <Setter Property="Background" Value="#2ECC71"/>
+        </Style>
+        <Style Selector="Button.ToolButton">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="MinWidth" Value="48"/>
+            <Setter Property="MinHeight" Value="48"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.ToolButton:pointerover">
+            <Setter Property="Background" Value="#4A6278"/>
+        </Style>
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="#1E2930"/>
+            <Setter Property="BorderBrush" Value="#4A5F73"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover">
+            <Setter Property="Background" Value="#2C3E50"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Background" Value="#3498DB"/>
+        </Style>
+
+        <Style Selector="TextBox.DialogInput">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#7F8C8D"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="CaretBrush" Value="White"/>
+        </Style>
+        <Style Selector="TextBox.DialogInput:focus">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3498DB"/>
+        </Style>
+        <Style Selector="TextBox.DialogInput:pointerover">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="TextBox.DialogInput /template/ TextBlock">
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="TextBox.DialogInput:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="#34495E"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Semi-transparent backdrop -->
+        <Border Background="#80000000" PointerPressed="Backdrop_PointerPressed"/>
+
+        <!-- Dialog panel -->
+        <Border Background="#2C3E50"
+                CornerRadius="12"
+                MaxWidth="550"
+                MaxHeight="550"
+                Margin="20"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                BoxShadow="0 8 32 #40000000">
+            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto" Margin="20">
+                <!-- Header -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/GoogleEarth.png" Width="24" Height="24"/>
+                    <TextBlock Classes="Header" Text="Import Field from KML"/>
+                </StackPanel>
+
+                <!-- Info text -->
+                <TextBlock Grid.Row="1" Text="Place KML files in Documents/AgValoniaGPS/Import"
+                           Foreground="#95A5A6" FontSize="12" Margin="0,0,0,8"/>
+
+                <!-- KML Files ListBox -->
+                <ListBox Grid.Row="2"
+                         SelectionMode="Single"
+                         MinHeight="120"
+                         MaxHeight="180"
+                         ItemsSource="{Binding AvailableKmlFiles}"
+                         SelectedItem="{Binding SelectedKmlFile}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="White" FontSize="14"/>
+                                <TextBlock Grid.Column="1" Text="{Binding FileSizeDisplay}" Foreground="#BDC3C7" FontSize="12"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- KML Info display -->
+                <Border Grid.Row="3" Background="#34495E" CornerRadius="6" Padding="12" Margin="0,10,0,0">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="20">
+                            <TextBlock Foreground="White" FontSize="13">
+                                <Run Text="Points: " Foreground="#95A5A6"/>
+                                <Run Text="{Binding KmlBoundaryPointCount}" Foreground="#1ABC9C"/>
+                            </TextBlock>
+                            <TextBlock Foreground="White" FontSize="13">
+                                <Run Text="Lat: " Foreground="#95A5A6"/>
+                                <Run Text="{Binding KmlCenterLatitude, StringFormat='{}{0:F6}'}"/>
+                            </TextBlock>
+                            <TextBlock Foreground="White" FontSize="13">
+                                <Run Text="Lon: " Foreground="#95A5A6"/>
+                                <Run Text="{Binding KmlCenterLongitude, StringFormat='{}{0:F6}'}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Field name input -->
+                <StackPanel Grid.Row="4" Margin="0,12,0,0" Spacing="6">
+                    <TextBlock Text="New Field Name:" Foreground="#BDC3C7" FontSize="13"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0"
+                                 Classes="DialogInput"
+                                 Text="{Binding KmlImportFieldName, Mode=TwoWay}"
+                                 Watermark="Enter field name"/>
+                        <Button Grid.Column="1" Classes="ToolButton" Width="44" Height="40" Margin="8,0,0,0"
+                                Command="{Binding KmlBackspaceFieldNameCommand}" ToolTip.Tip="Backspace">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/BackSpace.png" Width="24" Height="24"/>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Append buttons -->
+                <Grid Grid.Row="5" ColumnDefinitions="Auto,Auto,*" Margin="0,10,0,0">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <TextBlock Text="+" Foreground="White" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button Classes="ToolButton" Width="48" Height="48"
+                                Command="{Binding KmlAppendDateCommand}" ToolTip.Tip="Append date">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/JobNameCalendar.png" Width="32" Height="32"/>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                        <TextBlock Text="+" Foreground="White" FontSize="18" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button Classes="ToolButton" Width="48" Height="48"
+                                Command="{Binding KmlAppendTimeCommand}" ToolTip.Tip="Append time">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/JobNameTime.png" Width="32" Height="32"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Action Buttons -->
+                <Grid Grid.Row="6" ColumnDefinitions="*,Auto,Auto" Margin="0,16,0,0">
+                    <Border Grid.Column="0"/>
+                    <Button Grid.Column="1" Classes="DialogButton CancelButton" Content="Cancel"
+                            MinWidth="80" MinHeight="44"
+                            Command="{Binding CancelKmlImportDialogCommand}"/>
+                    <Button Grid.Column="2" Classes="DialogButton OkButton" Content="Import"
+                            MinWidth="80" MinHeight="44" Margin="12,0,0,0"
+                            Command="{Binding ConfirmKmlImportDialogCommand}"/>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

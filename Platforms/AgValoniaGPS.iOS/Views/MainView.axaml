@@ -40,5 +40,8 @@
         <dialogs:SimCoordsDialogPanel/>
         <dialogs:FieldSelectionDialogPanel/>
         <dialogs:NewFieldDialogPanel/>
+        <dialogs:FromExistingFieldDialogPanel/>
+        <dialogs:KmlImportDialogPanel/>
+        <dialogs:IsoXmlImportDialogPanel/>
     </Panel>
 </UserControl>

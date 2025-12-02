@@ -24,21 +24,27 @@ Convert Desktop's Window-based dialogs to shared UserControl-based panels that w
 ### Completed
 - [x] `SimCoordsDialogPanel` - Set simulator coordinates
 - [x] `FieldSelectionDialogPanel` - Open existing field
-- [x] `NewFieldDialogPanel` - Create new field
+- [x] `NewFieldDialogPanel` - Create new field (with TextBox dark theme fix)
+- [x] `FromExistingFieldDialogPanel` - Copy from existing field (with toggle buttons for copy options)
+- [x] `KmlImportDialogPanel` - Import from KML file (scans Documents/AgValoniaGPS/Import for *.kml files)
+- [x] `IsoXmlImportDialogPanel` - Import from ISO-XML (scans Import folder for TASKDATA.xml directories)
 
 ### In Progress
-- [ ] `FromExistingFieldDialogPanel` - Copy from existing field
-- [ ] `KmlImportDialogPanel` - Import from KML file
-- [ ] `IsoXmlImportDialogPanel` - Import from ISO-XML
 - [ ] `BoundaryDialogPanel` - Record/edit boundary (may need platform-specific map)
 
-### Desktop-Only (no iOS equivalent needed)
-- `BrowserMapDialog` - Uses Mapsui (desktop only)
-- `MapsuiBoundaryDialog` - Uses Mapsui (desktop only)
-- `AgShareUploadDialog` - Cloud sync (future)
-- `AgShareDownloadDialog` - Cloud sync (future)
-- `AgShareSettingsDialog` - Cloud sync (future)
-- `DataIODialog` - Desktop file operations
+### Pending (All needed for iOS/Android tablet replacement)
+- [ ] `BrowserMapDialogPanel` - Map browser for field location (needs non-Mapsui solution for mobile)
+- [ ] `BoundaryMapDialogPanel` - Boundary creation/editing on map (needs touch-friendly map)
+- [ ] `AgShareUploadDialogPanel` - Cloud sync upload
+- [ ] `AgShareDownloadDialogPanel` - Cloud sync download
+- [ ] `AgShareSettingsDialogPanel` - Cloud sync configuration
+- [ ] `DataIODialogPanel` - Data import/export operations
+
+### Notes on Mobile Map Dialogs
+The Desktop uses Mapsui for BrowserMapDialog and MapsuiBoundaryDialog. For iOS/Android:
+- Option 1: Use SkiaSharp-based map rendering (like DrawingContextMapControl)
+- Option 2: Use platform-native map controls (MapKit on iOS, Google Maps on Android)
+- Option 3: Use a cross-platform map library that works on mobile
 
 ## Pattern for Each Dialog
 
