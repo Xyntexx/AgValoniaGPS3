@@ -6,8 +6,12 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AgValoniaGPS.Models;
+
+// For loading embedded resources
+using AssetLoader = Avalonia.Platform.AssetLoader;
 
 namespace AgValoniaGPS.Views.Controls;
 
@@ -109,6 +113,7 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     private readonly IBrush _vehicleBrush;
     private readonly Pen _vehiclePen;
     private readonly IBrush _recordingPointBrush;
+    private IImage? _vehicleImage;
 
     // Render timer
     private readonly DispatcherTimer _renderTimer;
@@ -129,10 +134,13 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _gridPenAxisY = new Pen(new SolidColorBrush(Color.FromArgb(204, 51, 204, 51)), 1);
         _boundaryPenOuter = new Pen(Brushes.Yellow, 1);
         _boundaryPenInner = new Pen(Brushes.Red, 1);
-        _recordingPen = new Pen(Brushes.Cyan, 2);
+        _recordingPen = new Pen(Brushes.Cyan, 0.5); // Thinner line than dot markers
         _vehicleBrush = new SolidColorBrush(Color.FromRgb(0, 200, 0));
         _vehiclePen = new Pen(Brushes.DarkGreen, 2);
         _recordingPointBrush = new SolidColorBrush(Color.FromRgb(255, 128, 0));
+
+        // Load vehicle (tractor) image from embedded resources
+        LoadVehicleImage();
 
         // Render timer for continuous updates (10 FPS for iOS simulator compatibility)
         // Note: iOS simulator has ARM64->x64 translation overhead; increase FPS when testing on real device
@@ -346,7 +354,7 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     {
         if (_recordingPoints == null || _recordingPoints.Count == 0) return;
 
-        // Draw line strip
+        // Draw line strip connecting all points
         if (_recordingPoints.Count > 1)
         {
             var geometry = new StreamGeometry();
@@ -362,33 +370,62 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             context.DrawGeometry(null, _recordingPen, geometry);
         }
 
-        // Draw point markers
+        // Draw point markers (0.75m radius)
         foreach (var point in _recordingPoints)
         {
-            context.DrawEllipse(_recordingPointBrush, null, new Point(point.Easting, point.Northing), 1.5, 1.5);
+            context.DrawEllipse(_recordingPointBrush, null, new Point(point.Easting, point.Northing), 0.75, 0.75);
+        }
+    }
+
+    private void LoadVehicleImage()
+    {
+        try
+        {
+            // Load tractor image from embedded Avalonia resources using AssetLoader
+            var uri = new Uri("avares://AgValoniaGPS.Views/Assets/Images/TractorAoG.png");
+            using var stream = AssetLoader.Open(uri);
+            _vehicleImage = new Bitmap(stream);
+            Console.WriteLine("[DrawingContextMapControl] Loaded tractor image successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DrawingContextMapControl] Failed to load tractor image: {ex.Message}");
+            // Fallback to triangle drawing if image fails to load
         }
     }
 
     private void DrawVehicle(DrawingContext context)
     {
-        // Draw vehicle as a triangle pointing in heading direction
         // Size in meters (typical tractor ~5m)
         double size = 5.0;
 
         // Save transform and apply vehicle rotation
         using (context.PushTransform(Matrix.CreateTranslation(_vehicleX, _vehicleY)))
-        using (context.PushTransform(Matrix.CreateRotation(-_vehicleHeading + Math.PI / 2))) // Adjust for "north up" convention
+        using (context.PushTransform(Matrix.CreateRotation(-_vehicleHeading))) // Heading in radians, negated for screen coordinates
         {
-            // Triangle pointing up (forward)
-            var geometry = new StreamGeometry();
-            using (var ctx = geometry.Open())
+            if (_vehicleImage != null)
             {
-                ctx.BeginFigure(new Point(0, size / 2), true); // Front point
-                ctx.LineTo(new Point(-size / 3, -size / 2));   // Back left
-                ctx.LineTo(new Point(size / 3, -size / 2));    // Back right
-                ctx.EndFigure(true);
+                // Draw tractor image centered at vehicle position
+                // The image needs to be flipped vertically because we're in a y-up coordinate system
+                using (context.PushTransform(Matrix.CreateScale(1, -1)))
+                {
+                    var destRect = new Rect(-size / 2, -size / 2, size, size);
+                    context.DrawImage(_vehicleImage, destRect);
+                }
             }
-            context.DrawGeometry(_vehicleBrush, _vehiclePen, geometry);
+            else
+            {
+                // Fallback: draw a simple triangle
+                var geometry = new StreamGeometry();
+                using (var ctx = geometry.Open())
+                {
+                    ctx.BeginFigure(new Point(0, size / 2), true); // Front point
+                    ctx.LineTo(new Point(-size / 3, -size / 2));   // Back left
+                    ctx.LineTo(new Point(size / 3, -size / 2));    // Back right
+                    ctx.EndFigure(true);
+                }
+                context.DrawGeometry(_vehicleBrush, _vehiclePen, geometry);
+            }
         }
     }
 
@@ -411,7 +448,7 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             double offsetX = refX + _boundaryOffsetMeters * Math.Sin(perpAngle);
             double offsetY = refY + _boundaryOffsetMeters * Math.Cos(perpAngle);
 
-            var yellowPen = new Pen(Brushes.Yellow, 2);
+            var yellowPen = new Pen(Brushes.Yellow, 0.5);
             context.DrawLine(yellowPen, new Point(refX, refY), new Point(offsetX, offsetY));
 
             // Arrowhead

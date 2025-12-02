@@ -112,9 +112,7 @@ public partial class NumericKeyboardPanel : UserControl
 
     private void UpdateValue()
     {
-        // Always update display text to show current input (including partial like "-")
-        DisplayText = _currentValue;
-
+        // Update Value FIRST so it's available when DisplayText change notification fires
         if (string.IsNullOrEmpty(_currentValue) || _currentValue == "-" || _currentValue == ".")
         {
             Value = null;
@@ -123,6 +121,9 @@ public partial class NumericKeyboardPanel : UserControl
         {
             Value = value;
         }
+
+        // Update display text AFTER Value is set (so listeners see the correct Value)
+        DisplayText = _currentValue;
     }
 
     private void OnDigitClick(object? sender, RoutedEventArgs e)

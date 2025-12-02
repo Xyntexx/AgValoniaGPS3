@@ -57,5 +57,6 @@
         <dialogs:KmlImportDialogPanel/>
         <dialogs:IsoXmlImportDialogPanel/>
         <dialogs:BoundaryMapDialogPanel/>
+        <dialogs:NumericInputDialogPanel/>
     </Panel>
 </UserControl>

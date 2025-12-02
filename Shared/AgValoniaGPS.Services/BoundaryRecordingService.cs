@@ -14,7 +14,7 @@ public class BoundaryRecordingService : IBoundaryRecordingService
     private readonly List<BoundaryPoint> _recordedPoints = new();
     private BoundaryRecordingState _state = BoundaryRecordingState.Idle;
     private BoundaryType _currentBoundaryType = BoundaryType.Outer;
-    private double _minPointSpacing = 2.0; // Default 2 meters between points
+    private double _minPointSpacing = 5.0; // Default 5 meters between points (more appropriate for field boundaries)
     private BoundaryPoint? _lastPoint;
 
     /// <inheritdoc/>

@@ -533,6 +533,17 @@ public class MainViewModel : ReactiveObject
         Easting = data.CurrentPosition.Easting;
         Northing = data.CurrentPosition.Northing;
         Heading = data.CurrentPosition.Heading;
+
+        // Add boundary point if recording is active
+        if (_boundaryRecordingService.IsRecording)
+        {
+            double headingRadians = data.CurrentPosition.Heading * Math.PI / 180.0;
+            var (offsetEasting, offsetNorthing) = CalculateOffsetPosition(
+                data.CurrentPosition.Easting,
+                data.CurrentPosition.Northing,
+                headingRadians);
+            _boundaryRecordingService.AddPoint(offsetEasting, offsetNorthing, headingRadians);
+        }
     }
 
     // Simulator event handlers
@@ -590,6 +601,12 @@ public class MainViewModel : ReactiveObject
         {
             BoundaryPointCount = e.TotalPoints;
             BoundaryAreaHectares = e.AreaHectares;
+
+            // Update map with recorded points
+            var points = _boundaryRecordingService.RecordedPoints
+                .Select(p => (p.Easting, p.Northing))
+                .ToList();
+            _mapService.SetRecordingPoints(points);
         });
     }
 
@@ -600,6 +617,20 @@ public class MainViewModel : ReactiveObject
             IsBoundaryRecording = e.State == BoundaryRecordingState.Recording;
             BoundaryPointCount = e.PointCount;
             BoundaryAreaHectares = e.AreaHectares;
+
+            // Clear recording points from map when recording becomes idle
+            if (e.State == BoundaryRecordingState.Idle)
+            {
+                _mapService.ClearRecordingPoints();
+            }
+            // Update map with current recorded points (for undo/clear operations)
+            else if (e.PointCount >= 0)
+            {
+                var points = _boundaryRecordingService.RecordedPoints
+                    .Select(p => (p.Easting, p.Northing))
+                    .ToList();
+                _mapService.SetRecordingPoints(points);
+            }
         });
     }
 
@@ -1128,6 +1159,55 @@ public class MainViewModel : ReactiveObject
     public ICommand? ShowBoundaryMapDialogCommand { get; private set; }
     public ICommand? CancelBoundaryMapDialogCommand { get; private set; }
     public ICommand? ConfirmBoundaryMapDialogCommand { get; private set; }
+
+    // Numeric Input Dialog properties
+    private bool _isNumericInputDialogVisible;
+    public bool IsNumericInputDialogVisible
+    {
+        get => _isNumericInputDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isNumericInputDialogVisible, value);
+    }
+
+    private string _numericInputDialogTitle = string.Empty;
+    public string NumericInputDialogTitle
+    {
+        get => _numericInputDialogTitle;
+        set => this.RaiseAndSetIfChanged(ref _numericInputDialogTitle, value);
+    }
+
+    private decimal? _numericInputDialogValue;
+    public decimal? NumericInputDialogValue
+    {
+        get => _numericInputDialogValue;
+        set => this.RaiseAndSetIfChanged(ref _numericInputDialogValue, value);
+    }
+
+    private string _numericInputDialogDisplayText = string.Empty;
+    public string NumericInputDialogDisplayText
+    {
+        get => _numericInputDialogDisplayText;
+        set => this.RaiseAndSetIfChanged(ref _numericInputDialogDisplayText, value);
+    }
+
+    private bool _numericInputDialogIntegerOnly;
+    public bool NumericInputDialogIntegerOnly
+    {
+        get => _numericInputDialogIntegerOnly;
+        set => this.RaiseAndSetIfChanged(ref _numericInputDialogIntegerOnly, value);
+    }
+
+    private bool _numericInputDialogAllowNegative = true;
+    public bool NumericInputDialogAllowNegative
+    {
+        get => _numericInputDialogAllowNegative;
+        set => this.RaiseAndSetIfChanged(ref _numericInputDialogAllowNegative, value);
+    }
+
+    // Callback to run when numeric input is confirmed
+    private Action<double>? _numericInputDialogCallback;
+
+    public ICommand? CancelNumericInputDialogCommand { get; private set; }
+    public ICommand? ConfirmNumericInputDialogCommand { get; private set; }
 
     // iOS Modal Sheet Visibility Properties
     private bool _isFileMenuVisible;
@@ -1759,9 +1839,10 @@ public class MainViewModel : ReactiveObject
                 return;
             }
             // Load current position into the dialog fields
+            // Round to 7 decimal places to avoid floating-point precision artifacts
             var currentPos = GetSimulatorPosition();
-            SimCoordsDialogLatitude = (decimal)currentPos.Latitude;
-            SimCoordsDialogLongitude = (decimal)currentPos.Longitude;
+            SimCoordsDialogLatitude = Math.Round((decimal)currentPos.Latitude, 7);
+            SimCoordsDialogLongitude = Math.Round((decimal)currentPos.Longitude, 7);
             // Show the panel-based dialog
             IsSimCoordsDialogVisible = true;
         });
@@ -2553,10 +2634,18 @@ public class MainViewModel : ReactiveObject
                 return;
             }
 
+            // Get fields directory from settings (same pattern as ConfirmFieldSelectionDialogCommand)
             var fieldsDir = _settingsService.Settings.FieldsDirectory;
+            if (string.IsNullOrEmpty(fieldsDir))
+            {
+                fieldsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "AgValoniaGPS", "Fields");
+            }
+
             var fieldPath = Path.Combine(fieldsDir, lastField);
 
-            if (!_fieldService.FieldExists(fieldPath))
+            if (!Directory.Exists(fieldPath))
             {
                 StatusMessage = $"Field not found: {lastField}";
                 return;
@@ -2564,17 +2653,20 @@ public class MainViewModel : ReactiveObject
 
             try
             {
-                var field = _fieldService.LoadField(fieldPath);
-                _fieldService.SetActiveField(field);
-
+                FieldsRootDirectory = fieldsDir;
                 CurrentFieldName = lastField;
                 IsFieldOpen = true;
 
-                if (field.Boundary != null)
+                // Load boundary from field (same pattern as ConfirmFieldSelectionDialogCommand)
+                var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+                if (boundary != null)
                 {
-                    _mapService.SetBoundary(field.Boundary);
-                    CenterMapOnBoundary(field.Boundary);
+                    _mapService.SetBoundary(boundary);
+                    CenterMapOnBoundary(boundary);
                 }
+
+                // Load background image from field
+                LoadBackgroundImage(fieldPath, boundary);
 
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Resumed field: {lastField}";
@@ -2700,20 +2792,36 @@ public class MainViewModel : ReactiveObject
             IsDrawAtPivot = !IsDrawAtPivot;
         });
 
-        ShowBoundaryOffsetDialogCommand = new AsyncRelayCommand(async () =>
+        ShowBoundaryOffsetDialogCommand = new RelayCommand(() =>
         {
-            var result = await _dialogService.ShowNumericInputDialogAsync(
-                "Boundary Offset (cm)",
-                BoundaryOffset,
-                minValue: 0,
-                maxValue: 500,
-                decimalPlaces: 0);
-
-            if (result.HasValue)
+            // Show numeric input dialog for boundary offset
+            NumericInputDialogTitle = "Boundary Offset (cm)";
+            NumericInputDialogValue = (decimal)BoundaryOffset;
+            NumericInputDialogDisplayText = BoundaryOffset.ToString("F0");
+            NumericInputDialogIntegerOnly = true;
+            NumericInputDialogAllowNegative = false;
+            _numericInputDialogCallback = (value) =>
             {
-                BoundaryOffset = result.Value;
+                BoundaryOffset = value;
                 StatusMessage = $"Boundary offset set to {BoundaryOffset:F0} cm";
+            };
+            IsNumericInputDialogVisible = true;
+        });
+
+        CancelNumericInputDialogCommand = new RelayCommand(() =>
+        {
+            IsNumericInputDialogVisible = false;
+            _numericInputDialogCallback = null;
+        });
+
+        ConfirmNumericInputDialogCommand = new RelayCommand(() =>
+        {
+            if (NumericInputDialogValue.HasValue && _numericInputDialogCallback != null)
+            {
+                _numericInputDialogCallback((double)NumericInputDialogValue.Value);
             }
+            IsNumericInputDialogVisible = false;
+            _numericInputDialogCallback = null;
         });
 
         DeleteBoundaryCommand = new RelayCommand(DeleteSelectedBoundary);
