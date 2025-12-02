@@ -1067,6 +1067,68 @@ public class MainViewModel : ReactiveObject
     public ICommand? IsoXmlAppendTimeCommand { get; private set; }
     public ICommand? IsoXmlBackspaceFieldNameCommand { get; private set; }
 
+    // Boundary Map Dialog properties (for drawing boundaries on satellite map)
+    private bool _isBoundaryMapDialogVisible;
+    public bool IsBoundaryMapDialogVisible
+    {
+        get => _isBoundaryMapDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isBoundaryMapDialogVisible, value);
+    }
+
+    private double _boundaryMapCenterLatitude;
+    public double BoundaryMapCenterLatitude
+    {
+        get => _boundaryMapCenterLatitude;
+        set => this.RaiseAndSetIfChanged(ref _boundaryMapCenterLatitude, value);
+    }
+
+    private double _boundaryMapCenterLongitude;
+    public double BoundaryMapCenterLongitude
+    {
+        get => _boundaryMapCenterLongitude;
+        set => this.RaiseAndSetIfChanged(ref _boundaryMapCenterLongitude, value);
+    }
+
+    private int _boundaryMapPointCount;
+    public int BoundaryMapPointCount
+    {
+        get => _boundaryMapPointCount;
+        set => this.RaiseAndSetIfChanged(ref _boundaryMapPointCount, value);
+    }
+
+    private string _boundaryMapCoordinateText = string.Empty;
+    public string BoundaryMapCoordinateText
+    {
+        get => _boundaryMapCoordinateText;
+        set => this.RaiseAndSetIfChanged(ref _boundaryMapCoordinateText, value);
+    }
+
+    private bool _boundaryMapIncludeBackground = true;
+    public bool BoundaryMapIncludeBackground
+    {
+        get => _boundaryMapIncludeBackground;
+        set => this.RaiseAndSetIfChanged(ref _boundaryMapIncludeBackground, value);
+    }
+
+    private bool _boundaryMapCanSave;
+    public bool BoundaryMapCanSave
+    {
+        get => _boundaryMapCanSave;
+        set => this.RaiseAndSetIfChanged(ref _boundaryMapCanSave, value);
+    }
+
+    // Result properties for boundary map dialog
+    public List<(double Latitude, double Longitude)> BoundaryMapResultPoints { get; } = new();
+    public string? BoundaryMapResultBackgroundPath { get; set; }
+    public double BoundaryMapResultNwLat { get; set; }
+    public double BoundaryMapResultNwLon { get; set; }
+    public double BoundaryMapResultSeLat { get; set; }
+    public double BoundaryMapResultSeLon { get; set; }
+
+    public ICommand? ShowBoundaryMapDialogCommand { get; private set; }
+    public ICommand? CancelBoundaryMapDialogCommand { get; private set; }
+    public ICommand? ConfirmBoundaryMapDialogCommand { get; private set; }
+
     // iOS Modal Sheet Visibility Properties
     private bool _isFileMenuVisible;
     public bool IsFileMenuVisible
@@ -1515,6 +1577,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? DeleteBoundaryCommand { get; private set; }
     public ICommand? ImportKmlBoundaryCommand { get; private set; }
     public ICommand? DrawMapBoundaryCommand { get; private set; }
+    public ICommand? DrawMapBoundaryDesktopCommand { get; private set; }
     public ICommand? BuildFromTracksCommand { get; private set; }
     public ICommand? DriveAroundFieldCommand { get; private set; }
     public ICommand? ToggleRecordingCommand { get; private set; }
@@ -1762,6 +1825,9 @@ public class MainViewModel : ReactiveObject
                 _mapService.SetBoundary(boundary);
                 CenterMapOnBoundary(boundary);
             }
+
+            // Try to load background image from field
+            LoadBackgroundImage(fieldPath, boundary);
 
             IsFieldSelectionDialogVisible = false;
             IsJobMenuPanelVisible = false;
@@ -2281,6 +2347,142 @@ public class MainViewModel : ReactiveObject
             }
         });
 
+        // Boundary Map Dialog Commands (for satellite map boundary drawing)
+        ShowBoundaryMapDialogCommand = new RelayCommand(() =>
+        {
+            // Set center to current GPS position if available
+            BoundaryMapCenterLatitude = Latitude;
+            BoundaryMapCenterLongitude = Longitude;
+            BoundaryMapPointCount = 0;
+            BoundaryMapCanSave = false;
+            BoundaryMapCoordinateText = string.Empty;
+            BoundaryMapResultPoints.Clear();
+            IsBoundaryMapDialogVisible = true;
+        });
+
+        CancelBoundaryMapDialogCommand = new RelayCommand(() =>
+        {
+            IsBoundaryMapDialogVisible = false;
+            BoundaryMapResultPoints.Clear();
+        });
+
+        ConfirmBoundaryMapDialogCommand = new RelayCommand(() =>
+        {
+            Console.WriteLine($"[BoundaryMap] ConfirmBoundaryMapDialogCommand called");
+            Console.WriteLine($"[BoundaryMap] Points: {BoundaryMapResultPoints.Count}, IsFieldOpen: {IsFieldOpen}, CurrentFieldName: {CurrentFieldName}");
+
+            if (BoundaryMapResultPoints.Count >= 3 && IsFieldOpen && !string.IsNullOrEmpty(CurrentFieldName))
+            {
+                try
+                {
+                    var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+                    Console.WriteLine($"[BoundaryMap] Field path: {fieldPath}");
+                    Console.WriteLine($"[BoundaryMap] Directory exists: {Directory.Exists(fieldPath)}");
+
+                    // Load existing boundary or create new one
+                    var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+
+                    // Calculate center from boundary points for LocalPlane
+                    double centerLat = BoundaryMapResultPoints.Average(p => p.Latitude);
+                    double centerLon = BoundaryMapResultPoints.Average(p => p.Longitude);
+
+                    // Convert WGS84 boundary points to local coordinates
+                    var origin = new Wgs84(centerLat, centerLon);
+                    var sharedProps = new SharedFieldProperties();
+                    var localPlane = new LocalPlane(origin, sharedProps);
+
+                    var outerPolygon = new BoundaryPolygon();
+
+                    foreach (var (lat, lon) in BoundaryMapResultPoints)
+                    {
+                        var wgs84 = new Wgs84(lat, lon);
+                        var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
+                        outerPolygon.Points.Add(new BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
+                    }
+
+                    boundary.OuterBoundary = outerPolygon;
+
+                    // Save boundary
+                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
+
+                    // Update map
+                    _mapService.SetBoundary(boundary);
+
+                    // Center camera on the boundary and set appropriate zoom
+                    if (outerPolygon.Points.Count > 0)
+                    {
+                        // Calculate boundary center and extent
+                        double minE = double.MaxValue, maxE = double.MinValue;
+                        double minN = double.MaxValue, maxN = double.MinValue;
+                        foreach (var pt in outerPolygon.Points)
+                        {
+                            minE = Math.Min(minE, pt.Easting);
+                            maxE = Math.Max(maxE, pt.Easting);
+                            minN = Math.Min(minN, pt.Northing);
+                            maxN = Math.Max(maxN, pt.Northing);
+                        }
+                        double centerE = (minE + maxE) / 2.0;
+                        double centerN = (minN + maxN) / 2.0;
+                        double extentE = maxE - minE;
+                        double extentN = maxN - minN;
+                        double maxExtent = Math.Max(extentE, extentN);
+
+                        // Pan to center
+                        _mapService.PanTo(centerE, centerN);
+
+                        // Calculate zoom to fit boundary (viewHeight = 200/zoom, so zoom = 200/viewHeight)
+                        // Add 20% padding
+                        double desiredView = maxExtent * 1.2;
+                        if (desiredView > 0)
+                        {
+                            double newZoom = 200.0 / desiredView;
+                            newZoom = Math.Clamp(newZoom, 0.1, 10.0);
+                            _mapService.SetCamera(centerE, centerN, newZoom, 0);
+                        }
+
+                        Console.WriteLine($"[BoundaryMap] Saved boundary with {outerPolygon.Points.Count} points");
+                        Console.WriteLine($"[BoundaryMap] Center: ({centerE:F1}, {centerN:F1}), Extent: {maxExtent:F1}m");
+                    }
+
+                    // Handle background image if captured
+                    if (!string.IsNullOrEmpty(BoundaryMapResultBackgroundPath))
+                    {
+                        var destPath = Path.Combine(fieldPath, "BackPic.png");
+                        File.Copy(BoundaryMapResultBackgroundPath, destPath, true);
+
+                        // Save geo-reference (WGS84 format for file)
+                        var geoContent = $"$BackPic\ntrue\n{BoundaryMapResultNwLat}\n{BoundaryMapResultNwLon}\n{BoundaryMapResultSeLat}\n{BoundaryMapResultSeLon}";
+                        var geoPath = Path.Combine(fieldPath, "BackPic.txt");
+                        File.WriteAllText(geoPath, geoContent);
+
+                        // Convert WGS84 image bounds to local coordinates for display
+                        var nwWgs = new Wgs84(BoundaryMapResultNwLat, BoundaryMapResultNwLon);
+                        var seWgs = new Wgs84(BoundaryMapResultSeLat, BoundaryMapResultSeLon);
+                        var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs);
+                        var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs);
+
+                        // SetBackgroundImage expects: minX (west), maxY (north), maxX (east), minY (south)
+                        _mapService.SetBackgroundImage(destPath, nwLocal.Easting, nwLocal.Northing, seLocal.Easting, seLocal.Northing);
+                        Console.WriteLine($"[BoundaryMap] Background image saved and loaded");
+                        Console.WriteLine($"[BoundaryMap] Image bounds (local): NW({nwLocal.Easting:F1}, {nwLocal.Northing:F1}), SE({seLocal.Easting:F1}, {seLocal.Northing:F1})");
+                    }
+
+                    // Refresh the boundary list
+                    RefreshBoundaryList();
+
+                    StatusMessage = $"Boundary created with {BoundaryMapResultPoints.Count} points";
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Error creating boundary: {ex.Message}";
+                }
+            }
+
+            IsBoundaryMapDialogVisible = false;
+            IsBoundaryPanelVisible = false;
+            BoundaryMapResultPoints.Clear();
+        });
+
         ShowAgShareDownloadDialogCommand = new AsyncRelayCommand(async () =>
         {
             var result = await _dialogService.ShowAgShareDownloadDialogAsync(
@@ -2569,7 +2771,21 @@ public class MainViewModel : ReactiveObject
             }
         });
 
-        DrawMapBoundaryCommand = new AsyncRelayCommand(async () =>
+        DrawMapBoundaryCommand = new RelayCommand(() =>
+        {
+            // Must have a field open
+            if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+            {
+                StatusMessage = "Open a field first to add boundary";
+                return;
+            }
+
+            // Use the shared panel-based dialog (works on iOS and Desktop)
+            ShowBoundaryMapDialogCommand?.Execute(null);
+        });
+
+        // Keep Desktop-only async version for IDialogService integration
+        DrawMapBoundaryDesktopCommand = new AsyncRelayCommand(async () =>
         {
             // Must have a field open
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
@@ -2726,6 +2942,57 @@ public class MainViewModel : ReactiveObject
         double centerE = sumE / boundary.OuterBoundary.Points.Count;
         double centerN = sumN / boundary.OuterBoundary.Points.Count;
         _mapService.PanTo(centerE, centerN);
+    }
+
+    private void LoadBackgroundImage(string fieldPath, Boundary? boundary)
+    {
+        try
+        {
+            var backPicPath = Path.Combine(fieldPath, "BackPic.png");
+            var backPicGeoPath = Path.Combine(fieldPath, "BackPic.txt");
+
+            if (!File.Exists(backPicPath) || !File.Exists(backPicGeoPath))
+                return;
+
+            // Read the geo-reference file
+            // Format: $BackPic, true, nwLat, nwLon, seLat, seLon
+            var lines = File.ReadAllLines(backPicGeoPath);
+            if (lines.Length < 6 || lines[0] != "$BackPic")
+                return;
+
+            // Check if enabled
+            if (!bool.TryParse(lines[1], out bool enabled) || !enabled)
+                return;
+
+            // Parse WGS84 bounds
+            if (!double.TryParse(lines[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double nwLat) ||
+                !double.TryParse(lines[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double nwLon) ||
+                !double.TryParse(lines[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double seLat) ||
+                !double.TryParse(lines[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double seLon))
+                return;
+
+            // Create LocalPlane using center of image bounds as origin
+            double centerLat = (nwLat + seLat) / 2.0;
+            double centerLon = (nwLon + seLon) / 2.0;
+            var origin = new Wgs84(centerLat, centerLon);
+            var sharedProps = new SharedFieldProperties(); // Default properties (no drift compensation)
+            var localPlane = new LocalPlane(origin, sharedProps);
+
+            // Convert WGS84 to local coordinates
+            var nwWgs = new Wgs84(nwLat, nwLon);
+            var seWgs = new Wgs84(seLat, seLon);
+            var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs);
+            var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs);
+
+            // SetBackgroundImage expects: minX (west), maxY (north), maxX (east), minY (south)
+            _mapService.SetBackgroundImage(backPicPath, nwLocal.Easting, nwLocal.Northing, seLocal.Easting, seLocal.Northing);
+            Console.WriteLine($"[LoadBackgroundImage] Loaded background from {backPicPath}");
+            Console.WriteLine($"[LoadBackgroundImage] Bounds (local): NW({nwLocal.Easting:F1}, {nwLocal.Northing:F1}), SE({seLocal.Easting:F1}, {seLocal.Northing:F1})");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadBackgroundImage] Error loading background image: {ex.Message}");
+        }
     }
 
     /// <summary>

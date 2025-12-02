@@ -33,6 +33,19 @@
                 <panels:LeftNavigationPanel x:Name="LeftNavPanel"
                                             HorizontalAlignment="Stretch"
                                             VerticalAlignment="Stretch"/>
+
+                <!-- Zoom Controls - Bottom Right -->
+                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Margin="0,0,20,20" Spacing="10">
+                    <Button Content="+" Command="{Binding ZoomInCommand}"
+                            Width="50" Height="50" FontSize="28" FontWeight="Bold"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            Background="#4A5568" Foreground="White" CornerRadius="8"/>
+                    <Button Content="-" Command="{Binding ZoomOutCommand}"
+                            Width="50" Height="50" FontSize="28" FontWeight="Bold"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            Background="#4A5568" Foreground="White" CornerRadius="8"/>
+                </StackPanel>
             </Grid>
         </Grid>
 
@@ -43,5 +56,6 @@
         <dialogs:FromExistingFieldDialogPanel/>
         <dialogs:KmlImportDialogPanel/>
         <dialogs:IsoXmlImportDialogPanel/>
+        <dialogs:BoundaryMapDialogPanel/>
     </Panel>
 </UserControl>

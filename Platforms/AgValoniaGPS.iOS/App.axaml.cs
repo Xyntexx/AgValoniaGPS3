@@ -60,11 +60,15 @@ public partial class App : Avalonia.Application
                 // Avoid duplicate validations from both Avalonia and the CommunityToolkit.
                 DisableAvaloniaDataAnnotationValidation();
 
-                // Get MainViewModel from DI and create view with it
+                // Get MainViewModel and MapService from DI and create view with them
                 var viewModel = Services.GetRequiredService<MainViewModel>();
                 System.Diagnostics.Debug.WriteLine("[App] MainViewModel created from DI.");
 
-                singleViewPlatform.MainView = new MainView(viewModel);
+                var mapService = Services.GetRequiredService<AgValoniaGPS.Services.Interfaces.IMapService>();
+                var concreteMapService = mapService as AgValoniaGPS.iOS.Services.MapService;
+                System.Diagnostics.Debug.WriteLine($"[App] MapService retrieved from DI: {concreteMapService != null}");
+
+                singleViewPlatform.MainView = new MainView(viewModel, concreteMapService!);
                 System.Diagnostics.Debug.WriteLine("[App] MainView created and assigned.");
             }
 

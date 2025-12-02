@@ -3,6 +3,7 @@ using System.ComponentModel;
 using Avalonia.Controls;
 using AgValoniaGPS.ViewModels;
 using AgValoniaGPS.Views.Controls;
+using AgValoniaGPS.iOS.Services;
 
 namespace AgValoniaGPS.iOS.Views;
 
@@ -24,15 +25,18 @@ public partial class MainView : UserControl
         _mapControl = this.FindControl<DrawingContextMapControl>("MapControl");
     }
 
-    public MainView(MainViewModel viewModel) : this()
+    public MainView(MainViewModel viewModel, MapService mapService) : this()
     {
         Console.WriteLine("[MainView] Setting DataContext to MainViewModel...");
         DataContext = viewModel;
         _viewModel = viewModel;
 
-        // Wire up zoom commands to map control
+        // Register the map control with the MapService so it can receive commands
         if (_mapControl != null)
         {
+            mapService.RegisterMapControl(_mapControl);
+            Console.WriteLine("[MainView] MapControl registered with MapService.");
+
             viewModel.ZoomInRequested += () => _mapControl.Zoom(1.2);
             viewModel.ZoomOutRequested += () => _mapControl.Zoom(0.8);
         }

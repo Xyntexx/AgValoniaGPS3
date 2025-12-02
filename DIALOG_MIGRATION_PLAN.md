@@ -28,23 +28,28 @@ Convert Desktop's Window-based dialogs to shared UserControl-based panels that w
 - [x] `FromExistingFieldDialogPanel` - Copy from existing field (with toggle buttons for copy options)
 - [x] `KmlImportDialogPanel` - Import from KML file (scans Documents/AgValoniaGPS/Import for *.kml files)
 - [x] `IsoXmlImportDialogPanel` - Import from ISO-XML (scans Import folder for TASKDATA.xml directories)
+- [x] `BoundaryMapDialogPanel` - Draw boundary on satellite map using Mapsui (Esri World Imagery tiles)
 
 ### In Progress
 - [ ] `BoundaryDialogPanel` - Record/edit boundary (may need platform-specific map)
 
 ### Pending (All needed for iOS/Android tablet replacement)
-- [ ] `BrowserMapDialogPanel` - Map browser for field location (needs non-Mapsui solution for mobile)
-- [ ] `BoundaryMapDialogPanel` - Boundary creation/editing on map (needs touch-friendly map)
+- [ ] `BrowserMapDialogPanel` - Map browser for field location
 - [ ] `AgShareUploadDialogPanel` - Cloud sync upload
 - [ ] `AgShareDownloadDialogPanel` - Cloud sync download
 - [ ] `AgShareSettingsDialogPanel` - Cloud sync configuration
 - [ ] `DataIODialogPanel` - Data import/export operations
 
 ### Notes on Mobile Map Dialogs
-The Desktop uses Mapsui for BrowserMapDialog and MapsuiBoundaryDialog. For iOS/Android:
-- Option 1: Use SkiaSharp-based map rendering (like DrawingContextMapControl)
-- Option 2: Use platform-native map controls (MapKit on iOS, Google Maps on Android)
-- Option 3: Use a cross-platform map library that works on mobile
+**UPDATE**: Mapsui.Avalonia 5.0.0 works on iOS with SkiaSharp 3.119.1. The BoundaryMapDialogPanel
+uses Mapsui's MapControl with Esri World Imagery satellite tiles (free, no API key needed).
+
+Key findings:
+- Mapsui.Avalonia targets net8.0/net9.0 but works via Avalonia's iOS renderer
+- Required SkiaSharp upgrade from 2.88.9 to 3.119.1 (Mapsui dependency)
+- Uses `Mapsui.UI.Avalonia.MapControl` for map display
+- SphericalMercator projection for coordinate conversion
+- WritableLayer for points/polygons
 
 ## Pattern for Each Dialog
 

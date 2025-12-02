@@ -1,0 +1,155 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AgValoniaGPS.ViewModels"
+             xmlns:mapsui="clr-namespace:Mapsui.UI.Avalonia;assembly=Mapsui.UI.Avalonia"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="AgValoniaGPS.Views.Controls.Dialogs.BoundaryMapDialogPanel"
+             x:DataType="vm:MainViewModel"
+             IsVisible="{Binding IsBoundaryMapDialogVisible}"
+             IsHitTestVisible="{Binding IsBoundaryMapDialogVisible}">
+
+    <UserControl.Styles>
+        <Style Selector="Button.ToolButton">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="MinWidth" Value="70"/>
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.ToolButton:pointerover">
+            <Setter Property="Background" Value="#4A6278"/>
+        </Style>
+        <Style Selector="Button.ToolButton:pressed">
+            <Setter Property="Background" Value="#1ABC9C"/>
+        </Style>
+        <Style Selector="Button.ToolButton.active">
+            <Setter Property="Background" Value="#1ABC9C"/>
+        </Style>
+
+        <Style Selector="Button.CancelButton">
+            <Setter Property="Background" Value="#C0392B"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="MinWidth" Value="80"/>
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.CancelButton:pointerover">
+            <Setter Property="Background" Value="#E74C3C"/>
+        </Style>
+
+        <Style Selector="Button.OkButton">
+            <Setter Property="Background" Value="#27AE60"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="MinWidth" Value="80"/>
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.OkButton:pointerover">
+            <Setter Property="Background" Value="#2ECC71"/>
+        </Style>
+        <Style Selector="Button.OkButton:disabled">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Semi-transparent backdrop -->
+        <Border Background="#80000000" PointerPressed="Backdrop_PointerPressed"/>
+
+        <!-- Dialog panel - full screen with margin for touch targets -->
+        <Border Background="#2C3E50"
+                CornerRadius="12"
+                Margin="20"
+                BoxShadow="0 8 32 #40000000">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <!-- Header with instructions -->
+                <Border Grid.Row="0" Background="#34495E" Padding="15" CornerRadius="12,12,0,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Boundary.png" Width="24" Height="24"/>
+                                <TextBlock Text="Draw Field Boundary" Foreground="#1ABC9C" FontWeight="Bold" FontSize="18"/>
+                            </StackPanel>
+                            <TextBlock Text="Tap on the map to add boundary points. Pan with drag, pinch to zoom."
+                                       Foreground="#BDC3C7" FontSize="13" Margin="0,5,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                            <TextBlock x:Name="PointCountLabel" Text="{Binding BoundaryMapPointCount, StringFormat='Points: {0}'}"
+                                       Foreground="#1ABC9C" FontSize="14"
+                                       FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="CoordinateLabel" Text="{Binding BoundaryMapCoordinateText}"
+                                       Foreground="#BDC3C7" FontSize="12"
+                                       VerticalAlignment="Center" MinWidth="150"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Map Control -->
+                <mapsui:MapControl x:Name="MapControl" Grid.Row="1"/>
+
+                <!-- Bottom toolbar -->
+                <Border Grid.Row="1" Background="#80000000" Padding="10"
+                        VerticalAlignment="Top" HorizontalAlignment="Left"
+                        CornerRadius="0,0,8,0" Margin="0">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="BtnDraw" Classes="ToolButton"
+                                Click="BtnDraw_Click" ToolTip.Tip="Toggle drawing mode">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Boundary.png" Width="20" Height="20"/>
+                                <TextBlock x:Name="BtnDrawText" Text="Draw" Foreground="White" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="BtnUndo" Classes="ToolButton"
+                                Click="BtnUndo_Click" ToolTip.Tip="Remove last point" IsEnabled="False">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/BackSpace.png" Width="20" Height="20"/>
+                                <TextBlock Text="Undo" Foreground="White" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="BtnClear" Classes="ToolButton"
+                                Click="BtnClear_Click" ToolTip.Tip="Clear all points" IsEnabled="False">
+                            <TextBlock Text="Clear" Foreground="White"/>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <!-- Bottom action bar -->
+                <Border Grid.Row="2" Background="#34495E" Padding="15" CornerRadius="0,0,12,12">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <CheckBox x:Name="ChkSaveBackground" Grid.Column="0" Content="Include Background Image"
+                                  IsChecked="{Binding BoundaryMapIncludeBackground}"
+                                  VerticalAlignment="Center"/>
+
+                        <Border Grid.Column="1"/>
+
+                        <Button Grid.Column="2" Classes="CancelButton" Margin="0,0,10,0"
+                                Command="{Binding CancelBoundaryMapDialogCommand}" ToolTip.Tip="Cancel">
+                            <TextBlock Text="Cancel" Foreground="White"/>
+                        </Button>
+
+                        <Button x:Name="BtnSave" Grid.Column="3" Classes="OkButton"
+                                Click="BtnSave_Click" ToolTip.Tip="Save boundary"
+                                IsEnabled="{Binding BoundaryMapCanSave}">
+                            <TextBlock Text="Save" Foreground="White" FontWeight="Bold"/>
+                        </Button>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
