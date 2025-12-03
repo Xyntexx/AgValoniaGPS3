@@ -61,5 +61,6 @@
         <dialogs:AgShareSettingsDialogPanel/>
         <dialogs:AgShareUploadDialogPanel/>
         <dialogs:AgShareDownloadDialogPanel/>
+        <dialogs:DataIODialogPanel/>
     </Panel>
 </UserControl>

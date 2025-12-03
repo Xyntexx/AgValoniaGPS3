@@ -1259,6 +1259,44 @@ public class MainViewModel : ReactiveObject
     }
     public ICommand? CancelAgShareDownloadDialogCommand { get; private set; }
 
+    // Data I/O Dialog properties
+    private bool _isDataIODialogVisible;
+    public bool IsDataIODialogVisible
+    {
+        get => _isDataIODialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isDataIODialogVisible, value);
+    }
+
+    private bool _isDataIOKeyboardVisible;
+    public bool IsDataIOKeyboardVisible
+    {
+        get => _isDataIOKeyboardVisible;
+        set => this.RaiseAndSetIfChanged(ref _isDataIOKeyboardVisible, value);
+    }
+
+    private string _dataIOKeyboardText = "";
+    public string DataIOKeyboardText
+    {
+        get => _dataIOKeyboardText;
+        set => this.RaiseAndSetIfChanged(ref _dataIOKeyboardText, value);
+    }
+
+    public ICommand? ShowDataIODialogCommand { get; private set; }
+
+    public void SaveNtripSettings()
+    {
+        var settings = _settingsService.Settings;
+        settings.NtripCasterIp = NtripCasterAddress;
+        settings.NtripCasterPort = NtripCasterPort;
+        settings.NtripMountPoint = NtripMountPoint;
+        settings.NtripUsername = NtripUsername;
+        settings.NtripPassword = NtripPassword;
+        _settingsService.Save();
+
+        StatusMessage = "NTRIP settings saved";
+        Console.WriteLine("[DataIO] NTRIP settings saved");
+    }
+
     // iOS Modal Sheet Visibility Properties
     private bool _isFileMenuVisible;
     public bool IsFileMenuVisible
@@ -1664,7 +1702,6 @@ public class MainViewModel : ReactiveObject
     public ICommand? SimulatorSteerRightCommand { get; private set; }
 
     // Dialog Commands
-    public ICommand? ShowDataIODialogCommand { get; private set; }
     public ICommand? ShowSimCoordsDialogCommand { get; private set; }
     public ICommand? CancelSimCoordsDialogCommand { get; private set; }
     public ICommand? ConfirmSimCoordsDialogCommand { get; private set; }
@@ -1875,9 +1912,9 @@ public class MainViewModel : ReactiveObject
         });
 
         // Dialog Commands
-        ShowDataIODialogCommand = new AsyncRelayCommand(async () =>
+        ShowDataIODialogCommand = new RelayCommand(() =>
         {
-            await _dialogService.ShowDataIODialogAsync();
+            IsDataIODialogVisible = true;
         });
 
         ShowSimCoordsDialogCommand = new RelayCommand(() =>

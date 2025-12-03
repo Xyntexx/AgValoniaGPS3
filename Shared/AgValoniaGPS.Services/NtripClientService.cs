@@ -166,19 +166,22 @@ public class NtripClientService : INtripClientService, IDisposable
         if (_tcpSocket == null || _config == null) return;
 
         // Build NTRIP request (HTTP GET with Basic Auth)
+        // Use NTRIP 1.0 compatible format (simpler, more widely supported)
         var credentials = Convert.ToBase64String(
             Encoding.ASCII.GetBytes($"{_config.Username}:{_config.Password}"));
 
+        // Build request string manually with explicit \r\n to ensure correct formatting
         var request = new StringBuilder();
-        request.AppendLine($"GET /{_config.MountPoint} HTTP/{_config.HttpVersion}");
-        request.AppendLine($"Host: {_config.CasterAddress}:{_config.CasterPort}");
-        request.AppendLine($"Authorization: Basic {credentials}");
-        request.AppendLine("User-Agent: NTRIP AgValoniaGPS/1.0");
-        request.AppendLine("Accept: */*");
-        request.AppendLine("Connection: close");
-        request.AppendLine();
+        request.Append($"GET /{_config.MountPoint} HTTP/1.1\r\n");
+        request.Append($"Host: {_config.CasterAddress}\r\n");
+        request.Append("User-Agent: NTRIP AgValoniaGPS/1.0\r\n");
+        request.Append($"Authorization: Basic {credentials}\r\n");
+        request.Append("Accept: */*\r\n");
+        request.Append("Connection: keep-alive\r\n");
+        request.Append("\r\n");
 
-        byte[] requestBytes = Encoding.ASCII.GetBytes(request.ToString());
+        string requestStr = request.ToString();
+        byte[] requestBytes = Encoding.ASCII.GetBytes(requestStr);
         await _tcpSocket.SendAsync(requestBytes, SocketFlags.None);
     }
 
@@ -206,15 +209,13 @@ public class NtripClientService : INtripClientService, IDisposable
                             _headerBuffer.Add(_receiveBuffer[i]);
                         }
 
-                        Console.WriteLine($"NTRIP: Accumulating header bytes, buffer size: {_headerBuffer.Count}");
-
-                        // Dump first 200 bytes once to see actual header
-                        if (!_headerDumped && _headerBuffer.Count >= 200)
+                        // Dump header bytes once for debugging
+                        if (!_headerDumped && _headerBuffer.Count >= 10)
                         {
                             _headerDumped = true;
-                            int dumpSize = Math.Min(200, _headerBuffer.Count);
+                            int dumpSize = Math.Min(100, _headerBuffer.Count);
                             string headerPreview = Encoding.ASCII.GetString(_headerBuffer.Take(dumpSize).ToArray());
-                            Console.WriteLine($"NTRIP: First {dumpSize} bytes:\n{headerPreview}\n---END---");
+                            Console.WriteLine($"NTRIP: Response header: {headerPreview.Replace("\r\n", " ")}");
                         }
 
                         // Find header/body boundary
@@ -235,7 +236,6 @@ public class NtripClientService : INtripClientService, IDisposable
                                     {
                                         headerEnd = i;
                                         dataStart = i + 2; // After \r\n
-                                        Console.WriteLine("NTRIP: ICY protocol detected");
                                         break;
                                     }
                                 }
@@ -259,7 +259,7 @@ public class NtripClientService : INtripClientService, IDisposable
                             if (response.Contains("200 OK") || response.Contains("ICY 200"))
                             {
                                 headerReceived = true;
-                                Console.WriteLine("NTRIP: Header found, setting headerReceived=true, authorized");
+                                Console.WriteLine("NTRIP: Connected and authorized, receiving RTCM data");
 
                                 // Forward any RTCM data after header
                                 if (dataStart < _headerBuffer.Count)
@@ -267,7 +267,6 @@ public class NtripClientService : INtripClientService, IDisposable
                                     int rtcmBytes = _headerBuffer.Count - dataStart;
                                     byte[] rtcmData = new byte[rtcmBytes];
                                     _headerBuffer.CopyTo(dataStart, rtcmData, 0, rtcmBytes);
-                                    Console.WriteLine($"NTRIP: Forwarding {rtcmBytes} bytes from header packet");
                                     ForwardRtcmData(rtcmData);
                                 }
 
@@ -276,7 +275,7 @@ public class NtripClientService : INtripClientService, IDisposable
                             }
                             else
                             {
-                                System.Diagnostics.Debug.WriteLine($"NTRIP: Authorization failed - {response}");
+                                Console.WriteLine($"NTRIP: Authorization failed or bad response - {response}");
                                 await DisconnectAsync();
                                 return;
                             }
@@ -286,7 +285,6 @@ public class NtripClientService : INtripClientService, IDisposable
                     else
                     {
                         // All subsequent data is RTCM3 corrections - forward as raw bytes
-                        Console.WriteLine($"NTRIP: Forwarding {bytesReceived} bytes of RTCM data");
                         byte[] rtcmData = new byte[bytesReceived];
                         Array.Copy(_receiveBuffer, rtcmData, bytesReceived);
                         ForwardRtcmData(rtcmData);
@@ -295,7 +293,7 @@ public class NtripClientService : INtripClientService, IDisposable
                 else
                 {
                     // Connection closed by server
-                    System.Diagnostics.Debug.WriteLine("NTRIP: Connection closed by caster");
+                    Console.WriteLine("NTRIP: Connection closed by caster (bytesReceived=0)");
                     await DisconnectAsync();
                     return;
                 }
@@ -306,7 +304,7 @@ public class NtripClientService : INtripClientService, IDisposable
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"NTRIP receive error: {ex.Message}");
+                Console.WriteLine($"NTRIP: Receive error: {ex.Message}");
                 await DisconnectAsync();
                 break;
             }
@@ -358,8 +356,6 @@ public class NtripClientService : INtripClientService, IDisposable
                 {
                     BytesReceived = packet.Length
                 });
-
-                Console.WriteLine($"NTRIP: Forwarded {packet.Length} bytes to port 2233, queue remaining: {_rtcmQueue.Count}");
             }
             catch (Exception ex)
             {
@@ -416,7 +412,6 @@ public class NtripClientService : INtripClientService, IDisposable
                         0, // altitude
                         1, // fix quality (GPS fix)
                         8); // satellites
-                    Console.WriteLine("NTRIP: No GPS data, sending default position");
                 }
             }
 
@@ -436,8 +431,6 @@ public class NtripClientService : INtripClientService, IDisposable
         {
             byte[] ggaBytes = Encoding.ASCII.GetBytes(ggaSentence + "\r\n");
             await _tcpSocket.SendAsync(ggaBytes, SocketFlags.None);
-
-            Console.WriteLine($"NTRIP: Sent GGA - {ggaSentence}");
         }
         catch (Exception ex)
         {

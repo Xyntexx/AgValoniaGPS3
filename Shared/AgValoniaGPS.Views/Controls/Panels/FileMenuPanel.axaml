@@ -56,6 +56,8 @@
                     Command="{Binding ToggleSimulatorPanelCommand}"/>
             <Button Classes="ModernButton" Content="Enter Sim Coords" HorizontalAlignment="Stretch" Margin="0,2" ClickMode="Press"
                     Command="{Binding ShowSimCoordsDialogCommand}"/>
+            <Button Classes="ModernButton" Content="Data I/O" HorizontalAlignment="Stretch" Margin="0,2" ClickMode="Press"
+                    Command="{Binding ShowDataIODialogCommand}"/>
 
             <Separator Height="1" Background="#444" Margin="0,4"/>
 
