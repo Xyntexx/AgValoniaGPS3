@@ -1,6 +1,8 @@
 using System;
 using System.ComponentModel;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using AgValoniaGPS.ViewModels;
 using AgValoniaGPS.Views.Controls;
 using AgValoniaGPS.iOS.Services;
@@ -14,6 +16,10 @@ public partial class MainView : UserControl
 {
     private DrawingContextMapControl? _mapControl;
     private MainViewModel? _viewModel;
+
+    // Section control drag state
+    private bool _isDraggingSection;
+    private Point _dragStartPoint;
 
     public MainView()
     {
@@ -60,6 +66,44 @@ public partial class MainView : UserControl
                 double headingRadians = _viewModel.Heading * Math.PI / 180.0;
                 _mapControl.SetVehiclePosition(_viewModel.Easting, _viewModel.Northing, headingRadians);
             }
+        }
+    }
+
+    // Section Control drag handlers
+    private void SectionControl_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Control control)
+        {
+            _isDraggingSection = true;
+            _dragStartPoint = e.GetPosition(this);
+            e.Pointer.Capture(control);
+        }
+    }
+
+    private void SectionControl_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_isDraggingSection && sender is Control control)
+        {
+            var currentPoint = e.GetPosition(this);
+            var deltaX = currentPoint.X - _dragStartPoint.X;
+            var deltaY = currentPoint.Y - _dragStartPoint.Y;
+
+            var currentLeft = Canvas.GetLeft(control);
+            var currentTop = Canvas.GetTop(control);
+
+            Canvas.SetLeft(control, currentLeft + deltaX);
+            Canvas.SetTop(control, currentTop + deltaY);
+
+            _dragStartPoint = currentPoint;
+        }
+    }
+
+    private void SectionControl_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is Control control)
+        {
+            _isDraggingSection = false;
+            e.Pointer.Capture(null);
         }
     }
 }

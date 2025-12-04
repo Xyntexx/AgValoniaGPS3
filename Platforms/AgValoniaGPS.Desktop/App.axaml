@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="AgValoniaGPS.Desktop.App"
              xmlns:local="using:AgValoniaGPS.Desktop"
-             xmlns:converters="using:AgValoniaGPS.Desktop.Converters"
+             xmlns:converters="clr-namespace:AgValoniaGPS.Views.Converters;assembly=AgValoniaGPS.Views"
              RequestedThemeVariant="Default">
              <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
 
@@ -10,6 +10,9 @@
         <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
         <converters:BoolToStatusConverter x:Key="BoolToStatusConverter"/>
         <converters:FixQualityToColorConverter x:Key="FixQualityToColorConverter"/>
+        <converters:BoolToSteerColorConverter x:Key="BoolToSteerColorConverter"/>
+        <converters:BoolToSteerTextConverter x:Key="BoolToSteerTextConverter"/>
+        <converters:BoolToSectionColorConverter x:Key="BoolToSectionColorConverter"/>
     </Application.Resources>
 
     <Application.DataTemplates>

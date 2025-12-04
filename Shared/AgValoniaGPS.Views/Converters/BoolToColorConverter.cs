@@ -3,7 +3,7 @@ using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 
-namespace AgValoniaGPS.iOS.Converters;
+namespace AgValoniaGPS.Views.Converters;
 
 public class BoolToColorConverter : IValueConverter
 {
@@ -47,9 +47,9 @@ public class FixQualityToColorConverter : IValueConverter
         {
             return fixQuality switch
             {
-                "RTK Fixed" => Brushes.LimeGreen,
-                "RTK Float" => Brushes.Yellow,
-                _ => Brushes.Red
+                "RTK Fixed" => Brushes.LimeGreen,      // Green for RTK Fixed
+                "RTK Float" => Brushes.Yellow,          // Yellow for RTK Float
+                _ => Brushes.Red                        // Red for everything else (No Fix, GPS Fix, DGPS)
             };
         }
         return Brushes.Red;

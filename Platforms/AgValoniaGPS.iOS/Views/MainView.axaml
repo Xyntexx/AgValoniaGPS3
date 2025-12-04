@@ -34,9 +34,15 @@
                                             HorizontalAlignment="Stretch"
                                             VerticalAlignment="Stretch"/>
 
-                <!-- Section Control - Bottom Center -->
-                <panels:SectionControlPanel HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                                            Margin="0,0,0,20"/>
+                <!-- Draggable Section Control -->
+                <Canvas>
+                    <panels:SectionControlPanel x:Name="SectionControlPanel"
+                                                Canvas.Left="200" Canvas.Top="500"
+                                                Cursor="Hand"
+                                                PointerPressed="SectionControl_PointerPressed"
+                                                PointerMoved="SectionControl_PointerMoved"
+                                                PointerReleased="SectionControl_PointerReleased"/>
+                </Canvas>
 
                 <!-- Zoom Controls - Bottom Right -->
                 <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom"
