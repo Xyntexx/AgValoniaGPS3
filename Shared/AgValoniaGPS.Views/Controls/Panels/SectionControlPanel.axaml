@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="60"
+             x:Class="AgValoniaGPS.Views.Controls.Panels.SectionControlPanel"
+             x:DataType="vm:MainViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Border.SectionButton">
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Width" Value="45"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="#2C3E50"/>
+        </Style>
+        <Style Selector="Border.SectionButton.Active">
+            <Setter Property="Background" Value="#2ECC71"/>
+        </Style>
+        <Style Selector="Border.SectionButton > TextBlock">
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Floating panel with section indicators -->
+    <Border Background="#DD2C3E50" CornerRadius="12" Padding="15"
+            BoxShadow="0 4 16 2 #40000000">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+            <!-- Drag handle -->
+            <TextBlock Text="&#x2261;" Foreground="#888" FontSize="16" FontWeight="Bold"
+                       VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBlock Text="Sections" Foreground="White" FontSize="12" FontWeight="Bold"
+                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+
+            <!-- Section buttons - bind to ViewModel section states -->
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Border Classes="SectionButton" Classes.Active="{Binding Section1Active}">
+                    <TextBlock Text="1"/>
+                </Border>
+                <Border Classes="SectionButton" Classes.Active="{Binding Section2Active}">
+                    <TextBlock Text="2"/>
+                </Border>
+                <Border Classes="SectionButton" Classes.Active="{Binding Section3Active}">
+                    <TextBlock Text="3"/>
+                </Border>
+                <Border Classes="SectionButton" Classes.Active="{Binding Section4Active}">
+                    <TextBlock Text="4"/>
+                </Border>
+                <Border Classes="SectionButton" Classes.Active="{Binding Section5Active}">
+                    <TextBlock Text="5"/>
+                </Border>
+                <Border Classes="SectionButton" Classes.Active="{Binding Section6Active}">
+                    <TextBlock Text="6"/>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

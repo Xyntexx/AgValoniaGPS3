@@ -34,6 +34,10 @@
                                             HorizontalAlignment="Stretch"
                                             VerticalAlignment="Stretch"/>
 
+                <!-- Section Control - Bottom Center -->
+                <panels:SectionControlPanel HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                            Margin="0,0,0,20"/>
+
                 <!-- Zoom Controls - Bottom Right -->
                 <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom"
                             Margin="0,0,20,20" Spacing="10">

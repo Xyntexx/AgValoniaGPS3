@@ -248,35 +248,35 @@ public partial class MainWindow : Window
     // Drag functionality for Section Control
     private void SectionControl_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is Border border)
+        if (sender is Control control)
         {
             _isDraggingSection = true;
             _dragStartPoint = e.GetPosition(this);
-            e.Pointer.Capture(border);
+            e.Pointer.Capture(control);
         }
     }
 
     private void SectionControl_PointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_isDraggingSection && sender is Border border)
+        if (_isDraggingSection && sender is Control control)
         {
             var currentPoint = e.GetPosition(this);
             var delta = currentPoint - _dragStartPoint;
 
             // Calculate new position
-            double newLeft = Canvas.GetLeft(border) + delta.X;
-            double newTop = Canvas.GetTop(border) + delta.Y;
+            double newLeft = Canvas.GetLeft(control) + delta.X;
+            double newTop = Canvas.GetTop(control) + delta.Y;
 
             // Constrain to window bounds
-            double maxLeft = Bounds.Width - border.Bounds.Width;
-            double maxTop = Bounds.Height - border.Bounds.Height;
+            double maxLeft = Bounds.Width - control.Bounds.Width;
+            double maxTop = Bounds.Height - control.Bounds.Height;
 
             newLeft = Math.Clamp(newLeft, 0, maxLeft);
             newTop = Math.Clamp(newTop, 0, maxTop);
 
             // Update position
-            Canvas.SetLeft(border, newLeft);
-            Canvas.SetTop(border, newTop);
+            Canvas.SetLeft(control, newLeft);
+            Canvas.SetTop(control, newTop);
 
             _dragStartPoint = currentPoint;
         }
@@ -287,10 +287,7 @@ public partial class MainWindow : Window
         if (_isDraggingSection)
         {
             _isDraggingSection = false;
-            if (sender is Border border)
-            {
-                e.Pointer.Capture(null);
-            }
+            e.Pointer.Capture(null);
         }
     }
 

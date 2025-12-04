@@ -178,49 +178,13 @@
 
         <!-- Draggable Section Control (using Canvas for absolute positioning) -->
         <Canvas>
-        <Border x:Name="SectionControlPanel"
-                ZIndex="10"
-                Canvas.Left="900" Canvas.Top="600"
-                Classes="FloatingPanel"
-                Cursor="Hand"
-                PointerPressed="SectionControl_PointerPressed"
-                PointerMoved="SectionControl_PointerMoved"
-                PointerReleased="SectionControl_PointerReleased">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-                <TextBlock Text="≡" Foreground="#888" FontSize="16" FontWeight="Bold"
-                           VerticalAlignment="Center" Margin="0,0,4,0" ToolTip.Tip="Drag to move"/>
-                <TextBlock Text="Sections" Foreground="White" FontSize="12" FontWeight="Bold"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-
-                <!-- Section Buttons in single horizontal row -->
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Border Background="#E74C3C" CornerRadius="4" Height="32" Width="45">
-                        <TextBlock Text="1" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="White" FontWeight="Bold" FontSize="14"/>
-                    </Border>
-                    <Border Background="#E74C3C" CornerRadius="4" Height="32" Width="45">
-                        <TextBlock Text="2" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="White" FontWeight="Bold" FontSize="14"/>
-                    </Border>
-                    <Border Background="#E74C3C" CornerRadius="4" Height="32" Width="45">
-                        <TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="White" FontWeight="Bold" FontSize="14"/>
-                    </Border>
-                    <Border Background="#E74C3C" CornerRadius="4" Height="32" Width="45">
-                        <TextBlock Text="4" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="White" FontWeight="Bold" FontSize="14"/>
-                    </Border>
-                    <Border Background="#E74C3C" CornerRadius="4" Height="32" Width="45">
-                        <TextBlock Text="5" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="White" FontWeight="Bold" FontSize="14"/>
-                    </Border>
-                    <Border Background="#E74C3C" CornerRadius="4" Height="32" Width="45">
-                        <TextBlock Text="6" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="White" FontWeight="Bold" FontSize="14"/>
-                    </Border>
-                </StackPanel>
-            </StackPanel>
-        </Border>
+            <panels:SectionControlPanel x:Name="SectionControlPanel"
+                                        ZIndex="10"
+                                        Canvas.Left="900" Canvas.Top="600"
+                                        Cursor="Hand"
+                                        PointerPressed="SectionControl_PointerPressed"
+                                        PointerMoved="SectionControl_PointerMoved"
+                                        PointerReleased="SectionControl_PointerReleased"/>
         </Canvas>
     </Grid>
 
