@@ -3,26 +3,22 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Layout;
-using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models;
-using AgValoniaGPS.Desktop.Views;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace AgValoniaGPS.Desktop.Services;
 
 /// <summary>
 /// Desktop implementation of IDialogService.
-/// Shows Avalonia dialogs for user interaction.
+/// Most dialogs are now shown via shared overlay panels in MainWindow,
+/// triggered by ViewModel commands. This service handles basic message/confirmation dialogs.
 /// </summary>
 public class DialogService : IDialogService
 {
-    private readonly IServiceProvider _serviceProvider;
     private Window? _parentWindow;
 
     public DialogService(IServiceProvider serviceProvider)
     {
-        _serviceProvider = serviceProvider;
     }
 
     /// <summary>
@@ -145,200 +141,79 @@ public class DialogService : IDialogService
         return result;
     }
 
-    public async Task ShowDataIODialogAsync()
+    // The following dialog methods are now handled by shared overlay panels in MainWindow,
+    // triggered by ViewModel commands (e.g., ShowDataIODialogCommand sets IsDataIODialogVisible = true).
+    // These stub implementations return null/false to indicate no action.
+
+    public Task ShowDataIODialogAsync()
     {
-        var dialog = new DataIODialog();
-        // DataIODialog uses its own ViewModel or the main ViewModel
-        await dialog.ShowDialog(GetParentWindow());
+        // Handled by shared DataIODialogPanel overlay
+        return Task.CompletedTask;
     }
 
-    public async Task<(double Latitude, double Longitude)?> ShowSimCoordsDialogAsync(double currentLatitude, double currentLongitude)
+    public Task<(double Latitude, double Longitude)?> ShowSimCoordsDialogAsync(double currentLatitude, double currentLongitude)
     {
-        var dialog = new SimCoordsDialog(currentLatitude, currentLongitude);
-        await dialog.ShowDialog(GetParentWindow());
-
-        if (dialog.DialogResult)
-        {
-            return (dialog.Latitude, dialog.Longitude);
-        }
-        return null;
+        // Handled by shared SimCoordsDialogPanel overlay
+        return Task.FromResult<(double, double)?>(null);
     }
 
-    public async Task<DialogFieldSelectionResult?> ShowFieldSelectionDialogAsync(string fieldsDirectory)
+    public Task<DialogFieldSelectionResult?> ShowFieldSelectionDialogAsync(string fieldsDirectory)
     {
-        var fieldService = _serviceProvider.GetRequiredService<IFieldService>();
-        var dialog = new FieldSelectionDialog(fieldService, fieldsDirectory);
-        var result = await dialog.ShowDialog<bool>(GetParentWindow());
-
-        if (result && dialog.SelectedField != null)
-        {
-            return new DialogFieldSelectionResult
-            {
-                FieldName = System.IO.Path.GetFileName(dialog.SelectedField.DirectoryPath),
-                DirectoryPath = dialog.SelectedField.DirectoryPath,
-                Boundary = dialog.SelectedField.Boundary
-            };
-        }
-        return null;
+        // Handled by shared FieldSelectionDialogPanel overlay
+        return Task.FromResult<DialogFieldSelectionResult?>(null);
     }
 
-    public async Task<DialogNewFieldResult?> ShowNewFieldDialogAsync(Position currentPosition)
+    public Task<DialogNewFieldResult?> ShowNewFieldDialogAsync(Position currentPosition)
     {
-        var dialog = new NewFieldDialog(currentPosition);
-        var result = await dialog.ShowDialog<(bool Success, string FieldName, Position Origin)>(GetParentWindow());
-
-        if (result.Success && !string.IsNullOrWhiteSpace(result.FieldName))
-        {
-            return new DialogNewFieldResult
-            {
-                FieldName = result.FieldName,
-                Origin = result.Origin
-            };
-        }
-        return null;
+        // Handled by shared NewFieldDialogPanel overlay
+        return Task.FromResult<DialogNewFieldResult?>(null);
     }
 
-    public async Task<DialogFromExistingFieldResult?> ShowFromExistingFieldDialogAsync(string fieldsDirectory)
+    public Task<DialogFromExistingFieldResult?> ShowFromExistingFieldDialogAsync(string fieldsDirectory)
     {
-        var fieldService = _serviceProvider.GetRequiredService<IFieldService>();
-        var dialog = new FromExistingFieldDialog(fieldService, fieldsDirectory, "");
-        var result = await dialog.ShowDialog<bool?>(GetParentWindow());
-
-        if (result == true && dialog.Result != null)
-        {
-            return new DialogFromExistingFieldResult
-            {
-                SourceFieldPath = dialog.Result.SourceFieldPath,
-                NewFieldName = dialog.Result.NewFieldName,
-                CopyFlags = dialog.Result.CopyOptions.IncludeFlags,
-                CopyMapping = dialog.Result.CopyOptions.IncludeMapping,
-                CopyHeadland = dialog.Result.CopyOptions.IncludeHeadland,
-                CopyLines = dialog.Result.CopyOptions.IncludeLines
-            };
-        }
-        return null;
+        // Handled by shared FromExistingFieldDialogPanel overlay
+        return Task.FromResult<DialogFromExistingFieldResult?>(null);
     }
 
-    public async Task<DialogIsoXmlImportResult?> ShowIsoXmlImportDialogAsync(string fieldsDirectory)
+    public Task<DialogIsoXmlImportResult?> ShowIsoXmlImportDialogAsync(string fieldsDirectory)
     {
-        var dialog = new IsoXmlImportDialog(fieldsDirectory);
-        var result = await dialog.ShowDialog<bool?>(GetParentWindow());
-
-        if (result == true && dialog.Result != null)
-        {
-            return new DialogIsoXmlImportResult
-            {
-                FieldName = dialog.Result.NewFieldName,
-                FieldDirectory = dialog.Result.NewFieldPath,
-                ImportedBoundary = null // TODO: Convert IsoXmlBoundary to Boundary if needed
-            };
-        }
-        return null;
+        // Handled by shared IsoXmlImportDialogPanel overlay
+        return Task.FromResult<DialogIsoXmlImportResult?>(null);
     }
 
-    public async Task<DialogKmlImportResult?> ShowKmlImportDialogAsync(string fieldsDirectory, string? currentFieldPath = null)
+    public Task<DialogKmlImportResult?> ShowKmlImportDialogAsync(string fieldsDirectory, string? currentFieldPath = null)
     {
-        var parent = GetParentWindow();
-        var storageProvider = parent.StorageProvider;
-
-        // Show file picker first
-        var files = await storageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
-        {
-            Title = "Select KML File",
-            AllowMultiple = false,
-            FileTypeFilter = new[]
-            {
-                new Avalonia.Platform.Storage.FilePickerFileType("KML Files") { Patterns = new[] { "*.kml", "*.KML" } }
-            }
-        });
-
-        if (files.Count == 0) return null;
-
-        var kmlFilePath = files[0].Path.LocalPath;
-
-        // Show the import dialog with the selected KML file
-        var dialog = new KmlImportDialog(fieldsDirectory);
-        dialog.LoadKmlFile(kmlFilePath);
-
-        var result = await dialog.ShowDialog<bool?>(parent);
-
-        if (result == true && dialog.Result != null)
-        {
-            return new DialogKmlImportResult
-            {
-                FieldName = dialog.Result.NewFieldName,
-                FieldDirectory = currentFieldPath ?? dialog.Result.NewFieldPath,
-                ImportedBoundary = null, // ViewModel will create the boundary from points
-                CenterLatitude = dialog.Result.CenterLatitude,
-                CenterLongitude = dialog.Result.CenterLongitude,
-                BoundaryPoints = dialog.Result.BoundaryPoints
-            };
-        }
-        return null;
+        // Handled by shared KmlImportDialogPanel overlay
+        return Task.FromResult<DialogKmlImportResult?>(null);
     }
 
-    public async Task<DialogAgShareDownloadResult?> ShowAgShareDownloadDialogAsync(string apiKey, string fieldsDirectory)
+    public Task<DialogAgShareDownloadResult?> ShowAgShareDownloadDialogAsync(string apiKey, string fieldsDirectory)
     {
-        var serverUrl = "https://agshare.agopengps.com";
-        var dialog = new AgShareDownloadDialog(fieldsDirectory, serverUrl, apiKey);
-        var result = await dialog.ShowDialog<bool?>(GetParentWindow());
-
-        if (result == true && dialog.Result != null)
-        {
-            return new DialogAgShareDownloadResult
-            {
-                FieldName = dialog.Result.FieldName,
-                FieldDirectory = dialog.Result.FieldPath
-            };
-        }
-        return null;
+        // Handled by shared AgShareDownloadDialogPanel overlay
+        return Task.FromResult<DialogAgShareDownloadResult?>(null);
     }
 
-    public async Task<bool> ShowAgShareUploadDialogAsync(string apiKey, string fieldName, string fieldDirectory)
+    public Task<bool> ShowAgShareUploadDialogAsync(string apiKey, string fieldName, string fieldDirectory)
     {
-        var dialog = new AgShareUploadDialog(apiKey, fieldName, fieldDirectory);
-        var result = await dialog.ShowDialog<bool>(GetParentWindow());
-        return result;
+        // Handled by shared AgShareUploadDialogPanel overlay
+        return Task.FromResult(false);
     }
 
-    public async Task ShowAgShareSettingsDialogAsync()
+    public Task ShowAgShareSettingsDialogAsync()
     {
-        var settingsService = _serviceProvider.GetRequiredService<ISettingsService>();
-        var dialog = new AgShareSettingsDialog();
-        await dialog.ShowDialog(GetParentWindow());
+        // Handled by shared AgShareSettingsDialogPanel overlay
+        return Task.CompletedTask;
     }
 
-    public async Task<DialogMapBoundaryResult?> ShowMapBoundaryDialogAsync(double centerLatitude, double centerLongitude)
+    public Task<DialogMapBoundaryResult?> ShowMapBoundaryDialogAsync(double centerLatitude, double centerLongitude)
     {
-        var dialog = new MapsuiBoundaryDialog(centerLatitude, centerLongitude);
-        var result = await dialog.ShowDialog<bool?>(GetParentWindow());
-
-        if (result == true && dialog.Result != null &&
-            (dialog.Result.BoundaryPoints.Count >= 3 || dialog.Result.HasBackgroundImage))
-        {
-            return new DialogMapBoundaryResult
-            {
-                BoundaryPoints = dialog.Result.BoundaryPoints,
-                HasBackgroundImage = dialog.Result.HasBackgroundImage,
-                BackgroundImagePath = dialog.Result.BackgroundImagePath,
-                NorthWestLat = dialog.Result.NorthWestLat,
-                NorthWestLon = dialog.Result.NorthWestLon,
-                SouthEastLat = dialog.Result.SouthEastLat,
-                SouthEastLon = dialog.Result.SouthEastLon
-            };
-        }
-        return null;
+        // Handled by shared BoundaryMapDialogPanel overlay
+        return Task.FromResult<DialogMapBoundaryResult?>(null);
     }
 
-    public async Task<double?> ShowNumericInputDialogAsync(string description, double initialValue, double minValue = double.MinValue, double maxValue = double.MaxValue, int decimalPlaces = 2)
+    public Task<double?> ShowNumericInputDialogAsync(string description, double initialValue, double minValue = double.MinValue, double maxValue = double.MaxValue, int decimalPlaces = 2)
     {
-        return await OnScreenKeyboard.ShowAsync(
-            GetParentWindow(),
-            description: description,
-            initialValue: initialValue,
-            minValue: minValue,
-            maxValue: maxValue,
-            maxDecimalPlaces: decimalPlaces,
-            allowNegative: minValue < 0);
+        // Handled by shared NumericInputDialogPanel overlay
+        return Task.FromResult<double?>(null);
     }
 }

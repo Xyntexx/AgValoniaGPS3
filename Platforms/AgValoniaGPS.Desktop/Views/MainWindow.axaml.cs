@@ -15,7 +15,6 @@ using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Base;
-using AgValoniaGPS.Desktop.Controls;
 using AgValoniaGPS.Views.Controls;
 using AgValoniaGPS.Views.Controls.Panels;
 
@@ -82,42 +81,10 @@ public partial class MainWindow : Window
 
     private void CreateMapControl()
     {
-        // EXPERIMENT: Use DrawingContext-based rendering instead of OpenGL/SkiaSharp
-        // Set to true to test the shared DrawingContextMapControl
-        bool useDrawingContextRenderer = true;
-
-        // Check if running on iOS/mobile platform - use SkiaMapControl
-        // On desktop platforms, use OpenGLMapControl for better 3D support
-        bool useSoftwareRenderer = OperatingSystem.IsIOS() || OperatingSystem.IsAndroid();
-
-        Control mapControl;
-        ISharedMapControl sharedMapControl;
-
-        if (useDrawingContextRenderer)
-        {
-            // Use the shared DrawingContextMapControl (cross-platform)
-            var dcControl = new DrawingContextMapControl();
-            sharedMapControl = dcControl;
-            mapControl = dcControl;
-            Console.WriteLine("Using DrawingContextMapControl (cross-platform)");
-        }
-        else if (useSoftwareRenderer)
-        {
-            var skiaControl = new SkiaMapControl();
-            sharedMapControl = skiaControl;
-            mapControl = skiaControl;
-            Console.WriteLine("Using SkiaMapControl");
-        }
-        else
-        {
-            var glControl = new OpenGLMapControl();
-            sharedMapControl = glControl;
-            mapControl = glControl;
-            Console.WriteLine("Using OpenGLMapControl");
-        }
-
-        // Use the shared interface directly
-        MapControl = sharedMapControl;
+        // Use the shared DrawingContextMapControl (cross-platform)
+        var mapControl = new DrawingContextMapControl();
+        MapControl = mapControl;
+        Console.WriteLine("Using DrawingContextMapControl (cross-platform)");
 
         // Set the map control as the content of the container
         MapControlContainer.Content = mapControl;
@@ -378,12 +345,10 @@ public partial class MainWindow : Window
         }
         else if (e.PropertyName == nameof(MainViewModel.IsDayMode))
         {
-            // Day/Night mode visual implementation not yet added to OpenGLMapControl
             // TODO: Implement theme switching (background color, grid color, etc.)
         }
         else if (e.PropertyName == nameof(MainViewModel.IsNorthUp))
         {
-            // North-up rotation mode not yet implemented in OpenGLMapControl
             // TODO: Implement camera rotation locking to north
         }
         else if (e.PropertyName == nameof(MainViewModel.Brightness))

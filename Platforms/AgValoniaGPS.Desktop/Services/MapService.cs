@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models;
-using AgValoniaGPS.Desktop.Controls;
 using AgValoniaGPS.Views.Controls;
 
 namespace AgValoniaGPS.Desktop.Services;
