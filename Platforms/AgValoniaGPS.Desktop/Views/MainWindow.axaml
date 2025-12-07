@@ -201,5 +201,7 @@
     <dialogs:AgShareUploadDialogPanel/>
     <dialogs:AgShareDownloadDialogPanel/>
     <dialogs:DataIODialogPanel/>
+    <dialogs:HeadlandBuilderDialogPanel/>
+    <dialogs:HeadlandDialogPanel/>
     </Panel>
 </Window>

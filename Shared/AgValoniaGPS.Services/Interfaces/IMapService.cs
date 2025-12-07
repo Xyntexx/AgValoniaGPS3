@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using AgValoniaGPS.Models;
+using AgValoniaGPS.Models.Base;
 
 namespace AgValoniaGPS.Services.Interfaces;
 
@@ -52,4 +53,9 @@ public interface IMapService
     // Background imagery
     void SetBackgroundImage(string imagePath, double minX, double maxY, double maxX, double minY);
     void ClearBackground();
+
+    // Headland visualization
+    void SetHeadlandLine(IReadOnlyList<Vec3>? headlandPoints);
+    void SetHeadlandPreview(IReadOnlyList<Vec2>? previewPoints);
+    void SetHeadlandVisible(bool visible);
 }

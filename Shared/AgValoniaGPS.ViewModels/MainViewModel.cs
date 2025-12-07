@@ -30,6 +30,7 @@ public class MainViewModel : ReactiveObject
     private readonly IBoundaryRecordingService _boundaryRecordingService;
     private readonly BoundaryFileService _boundaryFileService;
     private readonly NmeaParserService _nmeaParser;
+    private readonly Services.Headland.IHeadlandBuilderService _headlandBuilderService;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
 
@@ -89,7 +90,8 @@ public class MainViewModel : ReactiveObject
         IDialogService dialogService,
         IMapService mapService,
         IBoundaryRecordingService boundaryRecordingService,
-        BoundaryFileService boundaryFileService)
+        BoundaryFileService boundaryFileService,
+        Services.Headland.IHeadlandBuilderService headlandBuilderService)
     {
         _udpService = udpService;
         _gpsService = gpsService;
@@ -105,6 +107,7 @@ public class MainViewModel : ReactiveObject
         _mapService = mapService;
         _boundaryRecordingService = boundaryRecordingService;
         _boundaryFileService = boundaryFileService;
+        _headlandBuilderService = headlandBuilderService;
         _nmeaParser = new NmeaParserService(gpsService);
 
         // Subscribe to events
@@ -1476,6 +1479,296 @@ public class MainViewModel : ReactiveObject
         return (offsetEasting, offsetNorthing);
     }
 
+    // Headland Builder properties
+    private bool _isHeadlandBuilderDialogVisible;
+    public bool IsHeadlandBuilderDialogVisible
+    {
+        get => _isHeadlandBuilderDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isHeadlandBuilderDialogVisible, value);
+    }
+
+    private bool _isHeadlandOn;
+    public bool IsHeadlandOn
+    {
+        get => _isHeadlandOn;
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isHeadlandOn, value))
+            {
+                StatusMessage = value ? "Headland ON" : "Headland OFF";
+                _mapService.SetHeadlandVisible(value);
+            }
+        }
+    }
+
+    private double _headlandDistance = 12.0;
+    public double HeadlandDistance
+    {
+        get => _headlandDistance;
+        set => this.RaiseAndSetIfChanged(ref _headlandDistance, Math.Max(1.0, Math.Min(100.0, value)));
+    }
+
+    private int _headlandPasses = 1;
+    public int HeadlandPasses
+    {
+        get => _headlandPasses;
+        set => this.RaiseAndSetIfChanged(ref _headlandPasses, Math.Max(1, Math.Min(5, value)));
+    }
+
+    private List<Models.Base.Vec3>? _currentHeadlandLine;
+    public List<Models.Base.Vec3>? CurrentHeadlandLine
+    {
+        get => _currentHeadlandLine;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _currentHeadlandLine, value);
+            _mapService.SetHeadlandLine(value);
+        }
+    }
+
+    private List<Models.Base.Vec2>? _headlandPreviewLine;
+    public List<Models.Base.Vec2>? HeadlandPreviewLine
+    {
+        get => _headlandPreviewLine;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _headlandPreviewLine, value);
+            _mapService.SetHeadlandPreview(value);
+        }
+    }
+
+    private bool _hasHeadland;
+    public bool HasHeadland
+    {
+        get => _hasHeadland;
+        set => this.RaiseAndSetIfChanged(ref _hasHeadland, value);
+    }
+
+    /// <summary>
+    /// Gets the current field's boundary for use in the headland editor.
+    /// </summary>
+    private Boundary? _currentBoundary;
+    public Boundary? CurrentBoundary
+    {
+        get => _currentBoundary;
+        private set => this.RaiseAndSetIfChanged(ref _currentBoundary, value);
+    }
+
+    // Headland Dialog (FormHeadLine) properties
+    private bool _isHeadlandDialogVisible;
+    public bool IsHeadlandDialogVisible
+    {
+        get => _isHeadlandDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isHeadlandDialogVisible, value);
+    }
+
+    private bool _isHeadlandCurveMode = true;
+    public bool IsHeadlandCurveMode
+    {
+        get => _isHeadlandCurveMode;
+        set
+        {
+            var oldValue = _isHeadlandCurveMode;
+            if (this.RaiseAndSetIfChanged(ref _isHeadlandCurveMode, value))
+            {
+                this.RaisePropertyChanged(nameof(IsHeadlandLineMode));
+                // Update preview when track type changes
+                if (IsHeadlandDialogVisible || IsHeadlandBuilderDialogVisible)
+                {
+                    UpdateHeadlandPreview();
+                }
+            }
+        }
+    }
+
+    public bool IsHeadlandLineMode
+    {
+        get => !_isHeadlandCurveMode;
+        set
+        {
+            if (value != !_isHeadlandCurveMode)
+            {
+                IsHeadlandCurveMode = !value;
+                // No need to call UpdateHeadlandPreview here - IsHeadlandCurveMode setter handles it
+            }
+        }
+    }
+
+    private bool _isHeadlandZoomMode;
+    public bool IsHeadlandZoomMode
+    {
+        get => _isHeadlandZoomMode;
+        set => this.RaiseAndSetIfChanged(ref _isHeadlandZoomMode, value);
+    }
+
+    private bool _isHeadlandSectionControlled = true;
+    public bool IsHeadlandSectionControlled
+    {
+        get => _isHeadlandSectionControlled;
+        set => this.RaiseAndSetIfChanged(ref _isHeadlandSectionControlled, value);
+    }
+
+    private int _headlandToolWidthMultiplier = 1;
+    public int HeadlandToolWidthMultiplier
+    {
+        get => _headlandToolWidthMultiplier;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _headlandToolWidthMultiplier, value);
+            this.RaisePropertyChanged(nameof(HeadlandCalculatedWidth));
+            // Update distance based on tool width multiplier
+            if (value > 0)
+            {
+                HeadlandDistance = _vehicleConfig.TrackWidth * value;
+            }
+        }
+    }
+
+    public double HeadlandCalculatedWidth => _vehicleConfig.TrackWidth * _headlandToolWidthMultiplier;
+
+    // Headland point selection (for clipping headland via boundary points)
+    // Each point is stored as (segmentIndex, t parameter 0-1, world position)
+    private int _headlandPoint1Index = -1;
+    public int HeadlandPoint1Index
+    {
+        get => _headlandPoint1Index;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _headlandPoint1Index, value);
+            this.RaisePropertyChanged(nameof(HeadlandPointsSelected));
+        }
+    }
+    private double _headlandPoint1T = 0;  // Parameter along segment (0 = start vertex, 1 = end vertex)
+    private Models.Base.Vec2? _headlandPoint1Position;  // Actual world position
+
+    private int _headlandPoint2Index = -1;
+    public int HeadlandPoint2Index
+    {
+        get => _headlandPoint2Index;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _headlandPoint2Index, value);
+            this.RaisePropertyChanged(nameof(HeadlandPointsSelected));
+        }
+    }
+    private double _headlandPoint2T = 0;  // Parameter along segment (0 = start vertex, 1 = end vertex)
+    private Models.Base.Vec2? _headlandPoint2Position;  // Actual world position
+
+    // For curve mode: store headland segment index/t (separate from boundary segment)
+    private int _headlandCurvePoint1Index = -1;
+    private double _headlandCurvePoint1T = 0;
+    private int _headlandCurvePoint2Index = -1;
+    private double _headlandCurvePoint2T = 0;
+
+    // Visual markers for selected points (world coordinates)
+    private List<Models.Base.Vec2>? _headlandSelectedMarkers;
+    public List<Models.Base.Vec2>? HeadlandSelectedMarkers
+    {
+        get => _headlandSelectedMarkers;
+        set => this.RaiseAndSetIfChanged(ref _headlandSelectedMarkers, value);
+    }
+
+    public bool HeadlandPointsSelected => _headlandPoint1Index >= 0 && _headlandPoint2Index >= 0;
+
+    // Clip line for headland clipping (line between two selected points) - used in LINE mode
+    public (Models.Base.Vec2 Start, Models.Base.Vec2 End)? HeadlandClipLine
+    {
+        get
+        {
+            // Only return straight clip line when NOT in curve mode
+            if (!IsHeadlandCurveMode && _headlandPoint1Position.HasValue && _headlandPoint2Position.HasValue)
+            {
+                return (_headlandPoint1Position.Value, _headlandPoint2Position.Value);
+            }
+            return null;
+        }
+    }
+
+    // Clip path for headland clipping (follows the headland curve) - used in CURVE mode
+    // This shows the section that will be REMOVED (the shorter path)
+    public List<Models.Base.Vec2>? HeadlandClipPath
+    {
+        get
+        {
+            // Only return clip path when in curve mode and both points selected on headland
+            if (!IsHeadlandCurveMode || _headlandCurvePoint1Index < 0 || _headlandCurvePoint2Index < 0)
+                return null;
+
+            var headland = CurrentHeadlandLine ?? ConvertPreviewToVec3(HeadlandPreviewLine);
+            if (headland == null || headland.Count < 3)
+                return null;
+
+            // Build both paths along the headland between the two selected points
+            var forwardPath = BuildCurveModePath(headland, _headlandCurvePoint1Index, _headlandCurvePoint1T,
+                                                           _headlandCurvePoint2Index, _headlandCurvePoint2T, true);
+            var backwardPath = BuildCurveModePath(headland, _headlandCurvePoint1Index, _headlandCurvePoint1T,
+                                                            _headlandCurvePoint2Index, _headlandCurvePoint2T, false);
+
+            // Return the LONGER path - this is what will be REMOVED (shown in red)
+            // Curve mode keeps the shorter section (between the two points), so the red line shows what's being cut away
+            return forwardPath.Count > backwardPath.Count ? forwardPath : backwardPath;
+        }
+    }
+
+    // Helper to build clip path for curve mode visualization
+    private List<Models.Base.Vec2> BuildCurveModePath(List<Models.Base.Vec3> headland, int idx1, double t1, int idx2, double t2, bool forward)
+    {
+        var path = new List<Models.Base.Vec2>();
+        int n = headland.Count;
+
+        // Start position (interpolated on headland segment)
+        var start = InterpolateHeadlandPoint(headland, idx1, t1);
+        path.Add(start);
+
+        if (forward)
+        {
+            // Go from idx1 to idx2 in forward (increasing index) direction
+            // Start from the next vertex after idx1's segment end
+            int current = (idx1 + 1) % n;
+            int target = (idx2 + 1) % n;
+            int iterations = 0;
+
+            while (current != target && iterations < n)
+            {
+                path.Add(new Models.Base.Vec2(headland[current].Easting, headland[current].Northing));
+                current = (current + 1) % n;
+                iterations++;
+            }
+        }
+        else
+        {
+            // Go from idx1 to idx2 in backward (decreasing index) direction
+            // Start from idx1's vertex (segment start)
+            int current = idx1;
+            int target = idx2;
+            int iterations = 0;
+
+            while (current != target && iterations < n)
+            {
+                path.Add(new Models.Base.Vec2(headland[current].Easting, headland[current].Northing));
+                current = (current - 1 + n) % n;
+                iterations++;
+            }
+        }
+
+        // End position (interpolated on headland segment)
+        var end = InterpolateHeadlandPoint(headland, idx2, t2);
+        path.Add(end);
+
+        return path;
+    }
+
+    // Helper to interpolate a point on a headland segment
+    private Models.Base.Vec2 InterpolateHeadlandPoint(List<Models.Base.Vec3> headland, int segmentIndex, double t)
+    {
+        int n = headland.Count;
+        var p1 = headland[segmentIndex];
+        var p2 = headland[(segmentIndex + 1) % n];
+        return new Models.Base.Vec2(
+            p1.Easting + t * (p2.Easting - p1.Easting),
+            p1.Northing + t * (p2.Northing - p1.Northing));
+    }
+
     // Field management properties
     private bool _isFieldOpen;
     public bool IsFieldOpen
@@ -1752,6 +2045,31 @@ public class MainViewModel : ReactiveObject
     public ICommand? ToggleBoundaryAntennaToolCommand { get; private set; }
     public ICommand? ShowBoundaryOffsetDialogCommand { get; private set; }
 
+    // Headland commands
+    public ICommand? ShowHeadlandBuilderCommand { get; private set; }
+    public ICommand? ToggleHeadlandCommand { get; private set; }
+    public ICommand? BuildHeadlandCommand { get; private set; }
+    public ICommand? ClearHeadlandCommand { get; private set; }
+    public ICommand? CloseHeadlandBuilderCommand { get; private set; }
+    public ICommand? SetHeadlandToToolWidthCommand { get; private set; }
+    public ICommand? PreviewHeadlandCommand { get; private set; }
+    public ICommand? IncrementHeadlandDistanceCommand { get; private set; }
+    public ICommand? DecrementHeadlandDistanceCommand { get; private set; }
+    public ICommand? IncrementHeadlandPassesCommand { get; private set; }
+    public ICommand? DecrementHeadlandPassesCommand { get; private set; }
+
+    // Headland Dialog (FormHeadLine) commands
+    public ICommand? ShowHeadlandDialogCommand { get; private set; }
+    public ICommand? CloseHeadlandDialogCommand { get; private set; }
+    public ICommand? ExtendHeadlandACommand { get; private set; }
+    public ICommand? ExtendHeadlandBCommand { get; private set; }
+    public ICommand? ShrinkHeadlandACommand { get; private set; }
+    public ICommand? ShrinkHeadlandBCommand { get; private set; }
+    public ICommand? ResetHeadlandCommand { get; private set; }
+    public ICommand? ClipHeadlandLineCommand { get; private set; }
+    public ICommand? UndoHeadlandCommand { get; private set; }
+    public ICommand? TurnOffHeadlandCommand { get; private set; }
+
     private void InitializeCommands()
     {
         // Use simple RelayCommand to avoid ReactiveCommand threading issues
@@ -1994,7 +2312,7 @@ public class MainViewModel : ReactiveObject
             var boundary = _boundaryFileService.LoadBoundary(fieldPath);
             if (boundary != null)
             {
-                _mapService.SetBoundary(boundary);
+                SetCurrentBoundary(boundary);
                 CenterMapOnBoundary(boundary);
             }
 
@@ -2591,7 +2909,7 @@ public class MainViewModel : ReactiveObject
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
 
                     // Update map
-                    _mapService.SetBoundary(boundary);
+                    SetCurrentBoundary(boundary);
 
                     // Center camera on the boundary and set appropriate zoom
                     if (outerPolygon.Points.Count > 0)
@@ -2721,12 +3039,170 @@ public class MainViewModel : ReactiveObject
             IsBoundaryPanelVisible = !IsBoundaryPanelVisible;
         });
 
+        // Headland Commands
+        ShowHeadlandBuilderCommand = new RelayCommand(() =>
+        {
+            if (!IsFieldOpen)
+            {
+                StatusMessage = "Open a field first";
+                return;
+            }
+            IsHeadlandBuilderDialogVisible = true;
+            // Trigger initial preview
+            UpdateHeadlandPreview();
+        });
+
+        ToggleHeadlandCommand = new RelayCommand(() =>
+        {
+            if (!HasHeadland)
+            {
+                StatusMessage = "No headland defined";
+                return;
+            }
+            IsHeadlandOn = !IsHeadlandOn;
+        });
+
+        BuildHeadlandCommand = new RelayCommand(() =>
+        {
+            BuildHeadlandFromBoundary();
+        });
+
+        ClearHeadlandCommand = new RelayCommand(() =>
+        {
+            CurrentHeadlandLine = null;
+            HeadlandPreviewLine = null;
+            HasHeadland = false;
+            IsHeadlandOn = false;
+            StatusMessage = "Headland cleared";
+        });
+
+        CloseHeadlandBuilderCommand = new RelayCommand(() =>
+        {
+            HeadlandPreviewLine = null;
+            IsHeadlandBuilderDialogVisible = false;
+        });
+
+        SetHeadlandToToolWidthCommand = new RelayCommand(() =>
+        {
+            // Set headland distance to implement width (use track width * 2 as approximation)
+            // TODO: Add actual tool/implement width to VehicleConfiguration
+            HeadlandDistance = _vehicleConfig.TrackWidth > 0 ? _vehicleConfig.TrackWidth * 2 : 12.0;
+            UpdateHeadlandPreview();
+        });
+
+        PreviewHeadlandCommand = new RelayCommand(() =>
+        {
+            UpdateHeadlandPreview();
+        });
+
+        IncrementHeadlandDistanceCommand = new RelayCommand(() =>
+        {
+            HeadlandDistance = Math.Min(HeadlandDistance + 0.5, 100.0);
+            UpdateHeadlandPreview();
+        });
+
+        DecrementHeadlandDistanceCommand = new RelayCommand(() =>
+        {
+            HeadlandDistance = Math.Max(HeadlandDistance - 0.5, 0.5);
+            UpdateHeadlandPreview();
+        });
+
+        IncrementHeadlandPassesCommand = new RelayCommand(() =>
+        {
+            HeadlandPasses = Math.Min(HeadlandPasses + 1, 10);
+            UpdateHeadlandPreview();
+        });
+
+        DecrementHeadlandPassesCommand = new RelayCommand(() =>
+        {
+            HeadlandPasses = Math.Max(HeadlandPasses - 1, 1);
+            UpdateHeadlandPreview();
+        });
+
+        // Headland Dialog (FormHeadLine) commands
+        ShowHeadlandDialogCommand = new RelayCommand(() =>
+        {
+            IsHeadlandDialogVisible = true;
+            UpdateHeadlandPreview();
+        });
+
+        CloseHeadlandDialogCommand = new RelayCommand(() =>
+        {
+            IsHeadlandDialogVisible = false;
+            HeadlandPreviewLine = null;
+        });
+
+        ExtendHeadlandACommand = new RelayCommand(() =>
+        {
+            // TODO: Extend headland at point A
+            StatusMessage = "Extend A - not yet implemented";
+        });
+
+        ExtendHeadlandBCommand = new RelayCommand(() =>
+        {
+            // TODO: Extend headland at point B
+            StatusMessage = "Extend B - not yet implemented";
+        });
+
+        ShrinkHeadlandACommand = new RelayCommand(() =>
+        {
+            // TODO: Shrink headland at point A
+            StatusMessage = "Shrink A - not yet implemented";
+        });
+
+        ShrinkHeadlandBCommand = new RelayCommand(() =>
+        {
+            // TODO: Shrink headland at point B
+            StatusMessage = "Shrink B - not yet implemented";
+        });
+
+        ResetHeadlandCommand = new RelayCommand(() =>
+        {
+            ClearHeadlandCommand?.Execute(null);
+            StatusMessage = "Headland reset";
+        });
+
+        ClipHeadlandLineCommand = new RelayCommand(() =>
+        {
+            if (!HeadlandPointsSelected)
+            {
+                StatusMessage = "Select 2 points on the boundary first";
+                return;
+            }
+
+            // Check if we have a headland to clip (either built headland or preview)
+            var headlandToClip = CurrentHeadlandLine ?? ConvertPreviewToVec3(HeadlandPreviewLine);
+            if (headlandToClip == null || headlandToClip.Count < 3)
+            {
+                StatusMessage = "No headland to clip - use Build first";
+                return;
+            }
+
+            // Clip the headland using the clip line (between the two selected points)
+            ClipHeadlandAtLine(headlandToClip);
+        });
+
+        UndoHeadlandCommand = new RelayCommand(() =>
+        {
+            // TODO: Undo headland changes
+            StatusMessage = "Undo - not yet implemented";
+        });
+
+        TurnOffHeadlandCommand = new RelayCommand(() =>
+        {
+            IsHeadlandOn = false;
+            HasHeadland = false;
+            CurrentHeadlandLine = null;
+            HeadlandPreviewLine = null;
+            StatusMessage = "Headland turned off";
+        });
+
         // Field Commands
         CloseFieldCommand = new RelayCommand(() =>
         {
             CurrentFieldName = string.Empty;
             IsFieldOpen = false;
-            _mapService.SetBoundary(null);
+            SetCurrentBoundary(null);
             StatusMessage = "Field closed";
         });
 
@@ -2775,7 +3251,7 @@ public class MainViewModel : ReactiveObject
                 var boundary = _boundaryFileService.LoadBoundary(fieldPath);
                 if (boundary != null)
                 {
-                    _mapService.SetBoundary(boundary);
+                    SetCurrentBoundary(boundary);
                     CenterMapOnBoundary(boundary);
                 }
 
@@ -2842,7 +3318,7 @@ public class MainViewModel : ReactiveObject
                     var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
                     boundary.OuterBoundary = polygon;
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
-                    _mapService.SetBoundary(boundary);
+                    SetCurrentBoundary(boundary);
                     RefreshBoundaryList();
                     StatusMessage = $"Boundary saved with {polygon.Points.Count} points, Area: {polygon.AreaHectares:F2} Ha";
                 }
@@ -2979,7 +3455,7 @@ public class MainViewModel : ReactiveObject
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
 
                     // Update map
-                    _mapService.SetBoundary(boundary);
+                    SetCurrentBoundary(boundary);
 
                     // Refresh the boundary list
                     RefreshBoundaryList();
@@ -3071,7 +3547,7 @@ public class MainViewModel : ReactiveObject
                         _boundaryFileService.SaveBoundary(boundary, fieldPath);
 
                         // Update map
-                        _mapService.SetBoundary(boundary);
+                        SetCurrentBoundary(boundary);
                         CenterMapOnBoundary(boundary);
 
                         // Refresh the boundary list
@@ -3321,9 +3797,18 @@ public class MainViewModel : ReactiveObject
         {
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
             RefreshBoundaryList();
-            _mapService.SetBoundary(boundary);
+            SetCurrentBoundary(boundary);
             StatusMessage = "Boundary deleted";
         }
+    }
+
+    /// <summary>
+    /// Sets the boundary on both the map service and the ViewModel's CurrentBoundary property.
+    /// </summary>
+    private void SetCurrentBoundary(Boundary? boundary)
+    {
+        _mapService.SetBoundary(boundary);
+        CurrentBoundary = boundary;
     }
 
     /// <summary>
@@ -3538,6 +4023,885 @@ public class MainViewModel : ReactiveObject
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Build headland from the current field boundary using configured options
+    /// </summary>
+    private void BuildHeadlandFromBoundary()
+    {
+        if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+        {
+            StatusMessage = "No field open";
+            return;
+        }
+
+        var fieldsDir = _settingsService.Settings.FieldsDirectory;
+        if (string.IsNullOrEmpty(fieldsDir))
+        {
+            fieldsDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "AgValoniaGPS", "Fields");
+        }
+
+        var fieldPath = Path.Combine(fieldsDir, CurrentFieldName);
+        var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+
+        if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
+        {
+            StatusMessage = "No valid boundary to create headland from";
+            return;
+        }
+
+        var options = new Services.Headland.HeadlandBuildOptions
+        {
+            Distance = HeadlandDistance,
+            Passes = HeadlandPasses,
+            JoinType = IsHeadlandCurveMode
+                ? Services.Geometry.OffsetJoinType.Round
+                : Services.Geometry.OffsetJoinType.Miter,
+            IncludeInnerBoundaries = true
+        };
+
+        var result = _headlandBuilderService.BuildHeadland(boundary, options);
+
+        if (!result.Success)
+        {
+            StatusMessage = result.ErrorMessage ?? "Failed to build headland";
+            return;
+        }
+
+        CurrentHeadlandLine = result.OuterHeadlandLine;
+        HeadlandPreviewLine = null;
+        HasHeadland = true;
+        IsHeadlandOn = true;
+        IsHeadlandBuilderDialogVisible = false;
+
+        StatusMessage = $"Headland built at {HeadlandDistance:F1}m";
+    }
+
+    /// <summary>
+    /// Update the headland preview line on the map
+    /// </summary>
+    private void UpdateHeadlandPreview()
+    {
+        if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+        {
+            HeadlandPreviewLine = null;
+            return;
+        }
+
+        var fieldsDir = _settingsService.Settings.FieldsDirectory;
+        if (string.IsNullOrEmpty(fieldsDir))
+        {
+            fieldsDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "AgValoniaGPS", "Fields");
+        }
+
+        var fieldPath = Path.Combine(fieldsDir, CurrentFieldName);
+        var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+
+        if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
+        {
+            HeadlandPreviewLine = null;
+            return;
+        }
+
+        // Get boundary points as Vec2
+        var boundaryPoints = boundary.OuterBoundary.Points
+            .Select(p => new Models.Base.Vec2(p.Easting, p.Northing))
+            .ToList();
+
+        // Determine join type based on curve/line mode
+        var joinType = IsHeadlandCurveMode
+            ? Services.Geometry.OffsetJoinType.Round
+            : Services.Geometry.OffsetJoinType.Miter;
+
+        // Create preview
+        var preview = _headlandBuilderService.PreviewHeadland(boundaryPoints, HeadlandDistance, joinType);
+        HeadlandPreviewLine = preview;
+    }
+
+    /// <summary>
+    /// Handle a click on the headland map to select a point.
+    /// In curve mode: snaps to headland line
+    /// In line mode: snaps to outer boundary
+    /// </summary>
+    public void HandleHeadlandMapClick(double easting, double northing)
+    {
+        var boundary = CurrentBoundary;
+        if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
+        {
+            Console.WriteLine($"[Headland] No valid boundary for point selection");
+            return;
+        }
+
+        double nearestX = 0, nearestY = 0;
+        int nearestSegmentIndex = -1;
+        double nearestT = 0;
+        int headlandSegmentIndex = -1;
+        double headlandT = 0;
+
+        if (IsHeadlandCurveMode)
+        {
+            // CURVE MODE: Snap to the headland line
+            var headland = CurrentHeadlandLine ?? ConvertPreviewToVec3(HeadlandPreviewLine);
+            if (headland == null || headland.Count < 3)
+            {
+                StatusMessage = "Build a headland first before selecting points in curve mode";
+                return;
+            }
+
+            // Find nearest point on headland
+            double minDistSq = double.MaxValue;
+            for (int i = 0; i < headland.Count; i++)
+            {
+                var p1 = headland[i];
+                var p2 = headland[(i + 1) % headland.Count];
+
+                double segDx = p2.Easting - p1.Easting;
+                double segDy = p2.Northing - p1.Northing;
+                double segLenSq = segDx * segDx + segDy * segDy;
+
+                double t = 0;
+                if (segLenSq >= 1e-10)
+                {
+                    t = ((easting - p1.Easting) * segDx + (northing - p1.Northing) * segDy) / segLenSq;
+                    t = Math.Clamp(t, 0, 1);
+                }
+
+                double closestX = p1.Easting + t * segDx;
+                double closestY = p1.Northing + t * segDy;
+                double dx = easting - closestX;
+                double dy = northing - closestY;
+                double distSq = dx * dx + dy * dy;
+
+                if (distSq < minDistSq)
+                {
+                    minDistSq = distSq;
+                    headlandSegmentIndex = i;
+                    headlandT = t;
+                    nearestX = closestX;
+                    nearestY = closestY;
+                }
+            }
+
+            // Also set boundary index (same as headland since they correspond)
+            nearestSegmentIndex = headlandSegmentIndex;
+            nearestT = headlandT;
+
+            Console.WriteLine($"[Headland] Curve mode - Clicked ({easting:F1}, {northing:F1}), nearest headland segment: {headlandSegmentIndex}, t: {headlandT:F2}, pos: ({nearestX:F1}, {nearestY:F1}), dist: {Math.Sqrt(minDistSq):F2}m");
+        }
+        else
+        {
+            // LINE MODE: Snap to outer boundary
+            var points = boundary.OuterBoundary.Points;
+            int count = points.Count;
+
+            double minDistSq = double.MaxValue;
+
+            for (int i = 0; i < count; i++)
+            {
+                var p1 = points[i];
+                var p2 = points[(i + 1) % count];
+
+                double segDx = p2.Easting - p1.Easting;
+                double segDy = p2.Northing - p1.Northing;
+                double segLenSq = segDx * segDx + segDy * segDy;
+
+                double t = 0;
+                if (segLenSq >= 1e-10)
+                {
+                    t = ((easting - p1.Easting) * segDx + (northing - p1.Northing) * segDy) / segLenSq;
+                    t = Math.Clamp(t, 0, 1);
+                }
+
+                double closestX = p1.Easting + t * segDx;
+                double closestY = p1.Northing + t * segDy;
+                double dx = easting - closestX;
+                double dy = northing - closestY;
+                double distSq = dx * dx + dy * dy;
+
+                if (distSq < minDistSq)
+                {
+                    minDistSq = distSq;
+                    nearestSegmentIndex = i;
+                    nearestT = t;
+                    nearestX = closestX;
+                    nearestY = closestY;
+                }
+            }
+
+            Console.WriteLine($"[Headland] Line mode - Clicked ({easting:F1}, {northing:F1}), nearest boundary segment: {nearestSegmentIndex}, t: {nearestT:F2}, pos: ({nearestX:F1}, {nearestY:F1}), dist: {Math.Sqrt(minDistSq):F2}m");
+        }
+
+        var nearestPosition = new Models.Base.Vec2(nearestX, nearestY);
+
+        // Store the point (first click = point 1, second click = point 2)
+        if (HeadlandPoint1Index < 0)
+        {
+            HeadlandPoint1Index = nearestSegmentIndex;
+            _headlandPoint1T = nearestT;
+            _headlandPoint1Position = nearestPosition;
+            if (IsHeadlandCurveMode)
+            {
+                _headlandCurvePoint1Index = headlandSegmentIndex;
+                _headlandCurvePoint1T = headlandT;
+            }
+            StatusMessage = $"Point 1 selected. Click again to select Point 2.";
+        }
+        else if (HeadlandPoint2Index < 0)
+        {
+            // Check if points are too close (same position)
+            if (_headlandPoint1Position.HasValue)
+            {
+                double dx = nearestX - _headlandPoint1Position.Value.Easting;
+                double dy = nearestY - _headlandPoint1Position.Value.Northing;
+                if (dx * dx + dy * dy < 1.0)  // Less than 1 meter apart
+                {
+                    StatusMessage = "Point 2 must be different from Point 1. Select a different location.";
+                    return;
+                }
+            }
+            HeadlandPoint2Index = nearestSegmentIndex;
+            _headlandPoint2T = nearestT;
+            _headlandPoint2Position = nearestPosition;
+            if (IsHeadlandCurveMode)
+            {
+                _headlandCurvePoint2Index = headlandSegmentIndex;
+                _headlandCurvePoint2T = headlandT;
+            }
+            StatusMessage = $"Point 2 selected. Click Clip to create headland line.";
+        }
+        else
+        {
+            // Reset and start over
+            HeadlandPoint1Index = nearestSegmentIndex;
+            _headlandPoint1T = nearestT;
+            _headlandPoint1Position = nearestPosition;
+            HeadlandPoint2Index = -1;
+            _headlandPoint2T = 0;
+            _headlandPoint2Position = null;
+            if (IsHeadlandCurveMode)
+            {
+                _headlandCurvePoint1Index = headlandSegmentIndex;
+                _headlandCurvePoint1T = headlandT;
+                _headlandCurvePoint2Index = -1;
+                _headlandCurvePoint2T = 0;
+            }
+            StatusMessage = $"Point 1 re-selected. Click again to select Point 2.";
+        }
+
+        // Update markers for visualization
+        UpdateHeadlandSelectedMarkers();
+    }
+
+    /// <summary>
+    /// Update the visual markers for selected headland points
+    /// </summary>
+    private void UpdateHeadlandSelectedMarkers()
+    {
+        var markers = new List<Models.Base.Vec2>();
+
+        if (HeadlandPoint1Index >= 0 && _headlandPoint1Position.HasValue)
+        {
+            markers.Add(_headlandPoint1Position.Value);
+        }
+
+        if (HeadlandPoint2Index >= 0 && _headlandPoint2Position.HasValue)
+        {
+            markers.Add(_headlandPoint2Position.Value);
+        }
+
+        HeadlandSelectedMarkers = markers.Count > 0 ? markers : null;
+
+        // Also notify that HeadlandClipPath may have changed (it's computed from curve mode indices)
+        this.RaisePropertyChanged(nameof(HeadlandClipPath));
+    }
+
+    /// <summary>
+    /// Clear the selected headland points
+    /// </summary>
+    public void ClearHeadlandPointSelection()
+    {
+        HeadlandPoint1Index = -1;
+        _headlandPoint1T = 0;
+        _headlandPoint1Position = null;
+        HeadlandPoint2Index = -1;
+        _headlandPoint2T = 0;
+        _headlandPoint2Position = null;
+        HeadlandSelectedMarkers = null;
+        // Also clear curve mode fields
+        _headlandCurvePoint1Index = -1;
+        _headlandCurvePoint1T = 0;
+        _headlandCurvePoint2Index = -1;
+        _headlandCurvePoint2T = 0;
+    }
+
+    /// <summary>
+    /// Create a headland line from the selected boundary segment
+    /// </summary>
+    private void CreateHeadlandFromSelectedPoints(Boundary boundary)
+    {
+        if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
+        {
+            StatusMessage = "No valid boundary";
+            return;
+        }
+
+        if (_headlandPoint1Position == null || _headlandPoint2Position == null)
+        {
+            StatusMessage = "Invalid point selection";
+            return;
+        }
+
+        var points = boundary.OuterBoundary.Points;
+        int count = points.Count;
+
+        // We have segment indices and t values for both points
+        // Now extract the boundary path between them, including the interpolated endpoints
+        int seg1 = HeadlandPoint1Index;
+        double t1 = _headlandPoint1T;
+        int seg2 = HeadlandPoint2Index;
+        double t2 = _headlandPoint2T;
+
+        // Build segment points list - we need to traverse from point1 to point2
+        // Try both directions and take the shorter path
+        var forwardPath = ExtractBoundaryPath(points, seg1, t1, seg2, t2, true);
+        var backwardPath = ExtractBoundaryPath(points, seg1, t1, seg2, t2, false);
+
+        // Calculate path lengths
+        double forwardLen = CalculatePathLength(forwardPath);
+        double backwardLen = CalculatePathLength(backwardPath);
+
+        var segmentPoints = forwardLen <= backwardLen ? forwardPath : backwardPath;
+
+        Console.WriteLine($"[Headland] Creating headland from {segmentPoints.Count} boundary points (forward: {forwardPath.Count}, backward: {backwardPath.Count}), distance: {HeadlandDistance:F1}m");
+
+        if (segmentPoints.Count < 2)
+        {
+            StatusMessage = "Not enough points in segment";
+            return;
+        }
+
+        // Determine the offset direction (inward = toward center of boundary)
+        // Calculate boundary centroid to determine offset direction
+        double centerX = 0, centerY = 0;
+        foreach (var pt in points)
+        {
+            centerX += pt.Easting;
+            centerY += pt.Northing;
+        }
+        centerX /= count;
+        centerY /= count;
+
+        // Check if the midpoint of the segment offset needs to go toward or away from center
+        var midPt = segmentPoints[segmentPoints.Count / 2];
+        double dx = centerX - midPt.Easting;
+        double dy = centerY - midPt.Northing;
+
+        // Calculate perpendicular direction of segment at midpoint
+        int midIdx = segmentPoints.Count / 2;
+        var prevPt = segmentPoints[System.Math.Max(0, midIdx - 1)];
+        var nextPt = segmentPoints[System.Math.Min(segmentPoints.Count - 1, midIdx + 1)];
+        double segDx = nextPt.Easting - prevPt.Easting;
+        double segDy = nextPt.Northing - prevPt.Northing;
+
+        // Perpendicular to segment (90 deg clockwise): (segDy, -segDx)
+        // Dot product with center direction determines offset sign
+        double dotProduct = dx * segDy + dy * (-segDx);
+        double offsetDistance = dotProduct > 0 ? HeadlandDistance : -HeadlandDistance;
+
+        // Get join type
+        var joinType = IsHeadlandCurveMode
+            ? Services.Geometry.OffsetJoinType.Round
+            : Services.Geometry.OffsetJoinType.Miter;
+
+        // Create the offset line - use simple perpendicular offset for each point
+        var headlandPoints = new List<Models.Base.Vec2>();
+        for (int i = 0; i < segmentPoints.Count; i++)
+        {
+            // Get direction at this point
+            Models.Base.Vec2 dir;
+            if (i == 0)
+            {
+                dir = new Models.Base.Vec2(
+                    segmentPoints[1].Easting - segmentPoints[0].Easting,
+                    segmentPoints[1].Northing - segmentPoints[0].Northing);
+            }
+            else if (i == segmentPoints.Count - 1)
+            {
+                dir = new Models.Base.Vec2(
+                    segmentPoints[i].Easting - segmentPoints[i - 1].Easting,
+                    segmentPoints[i].Northing - segmentPoints[i - 1].Northing);
+            }
+            else
+            {
+                dir = new Models.Base.Vec2(
+                    segmentPoints[i + 1].Easting - segmentPoints[i - 1].Easting,
+                    segmentPoints[i + 1].Northing - segmentPoints[i - 1].Northing);
+            }
+
+            // Normalize
+            double len = System.Math.Sqrt(dir.Easting * dir.Easting + dir.Northing * dir.Northing);
+            if (len > 1e-10)
+            {
+                dir = new Models.Base.Vec2(dir.Easting / len, dir.Northing / len);
+            }
+
+            // Perpendicular offset (rotate 90 degrees clockwise for positive offset)
+            double perpX = dir.Northing * offsetDistance;
+            double perpY = -dir.Easting * offsetDistance;
+
+            headlandPoints.Add(new Models.Base.Vec2(
+                segmentPoints[i].Easting + perpX,
+                segmentPoints[i].Northing + perpY));
+        }
+
+        Console.WriteLine($"[Headland] Created {headlandPoints.Count} headland points");
+
+        // Convert to Vec3 with headings
+        var headlandWithHeadings = new List<Models.Base.Vec3>();
+        for (int i = 0; i < headlandPoints.Count; i++)
+        {
+            // Calculate heading from direction between adjacent points
+            double heading;
+            if (headlandPoints.Count < 2)
+            {
+                heading = 0;
+            }
+            else if (i == 0)
+            {
+                double hdx = headlandPoints[1].Easting - headlandPoints[0].Easting;
+                double hdy = headlandPoints[1].Northing - headlandPoints[0].Northing;
+                heading = System.Math.Atan2(hdx, hdy);
+            }
+            else if (i == headlandPoints.Count - 1)
+            {
+                double hdx = headlandPoints[i].Easting - headlandPoints[i - 1].Easting;
+                double hdy = headlandPoints[i].Northing - headlandPoints[i - 1].Northing;
+                heading = System.Math.Atan2(hdx, hdy);
+            }
+            else
+            {
+                double hdx = headlandPoints[i + 1].Easting - headlandPoints[i - 1].Easting;
+                double hdy = headlandPoints[i + 1].Northing - headlandPoints[i - 1].Northing;
+                heading = System.Math.Atan2(hdx, hdy);
+            }
+            headlandWithHeadings.Add(new Models.Base.Vec3(
+                headlandPoints[i].Easting,
+                headlandPoints[i].Northing,
+                heading));
+        }
+
+        // Set the headland line
+        CurrentHeadlandLine = headlandWithHeadings;
+        HasHeadland = true;
+        IsHeadlandOn = true;
+
+        // Clear selection
+        ClearHeadlandPointSelection();
+
+        StatusMessage = $"Headland created with {headlandWithHeadings.Count} points";
+    }
+
+    /// <summary>
+    /// Extract a path along the boundary between two points (each specified by segment index + t parameter)
+    /// </summary>
+    private List<Models.Base.Vec2> ExtractBoundaryPath(
+        IReadOnlyList<BoundaryPoint> points,
+        int seg1, double t1,
+        int seg2, double t2,
+        bool forward)
+    {
+        var result = new List<Models.Base.Vec2>();
+        int count = points.Count;
+
+        // Helper to interpolate a point on a segment
+        Models.Base.Vec2 Interpolate(int segIdx, double t)
+        {
+            var p1 = points[segIdx];
+            var p2 = points[(segIdx + 1) % count];
+            return new Models.Base.Vec2(
+                p1.Easting + t * (p2.Easting - p1.Easting),
+                p1.Northing + t * (p2.Northing - p1.Northing));
+        }
+
+        // Add the start point (point1)
+        result.Add(Interpolate(seg1, t1));
+
+        if (forward)
+        {
+            // Forward: go from seg1 toward seg2 in increasing index order
+            if (seg1 == seg2)
+            {
+                // Both points on same segment
+                if (t2 > t1)
+                {
+                    // Already have start point, just add end point
+                    result.Add(Interpolate(seg2, t2));
+                }
+                else
+                {
+                    // Need to go all the way around (very rare case)
+                    for (int i = seg1 + 1; i < count; i++)
+                        result.Add(new Models.Base.Vec2(points[i].Easting, points[i].Northing));
+                    for (int i = 0; i <= seg2; i++)
+                        result.Add(new Models.Base.Vec2(points[i].Easting, points[i].Northing));
+                    result.Add(Interpolate(seg2, t2));
+                }
+            }
+            else
+            {
+                // Different segments - traverse forward from seg1 to seg2
+                int current = seg1;
+                while (current != seg2)
+                {
+                    current = (current + 1) % count;
+                    result.Add(new Models.Base.Vec2(points[current].Easting, points[current].Northing));
+                }
+                // Replace last vertex with interpolated endpoint if t2 > 0
+                if (t2 > 0)
+                {
+                    result[result.Count - 1] = Interpolate(seg2, t2);
+                }
+            }
+        }
+        else
+        {
+            // Backward: go from seg1 toward seg2 in decreasing index order
+            if (seg1 == seg2)
+            {
+                // Both points on same segment
+                if (t2 < t1)
+                {
+                    // Already have start point, just add end point
+                    result.Add(Interpolate(seg2, t2));
+                }
+                else
+                {
+                    // Need to go all the way around backward
+                    for (int i = seg1; i >= 0; i--)
+                        result.Add(new Models.Base.Vec2(points[i].Easting, points[i].Northing));
+                    for (int i = count - 1; i > seg2; i--)
+                        result.Add(new Models.Base.Vec2(points[i].Easting, points[i].Northing));
+                    result.Add(Interpolate(seg2, t2));
+                }
+            }
+            else
+            {
+                // Different segments - traverse backward from seg1 to seg2
+                int current = seg1;
+                // First add the start vertex of seg1
+                result.Add(new Models.Base.Vec2(points[current].Easting, points[current].Northing));
+
+                while (current != seg2)
+                {
+                    current = (current - 1 + count) % count;
+                    result.Add(new Models.Base.Vec2(points[current].Easting, points[current].Northing));
+                }
+                // Add the interpolated endpoint
+                result.Add(Interpolate(seg2, t2));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Calculate the total length of a path
+    /// </summary>
+    private double CalculatePathLength(List<Models.Base.Vec2> path)
+    {
+        double length = 0;
+        for (int i = 1; i < path.Count; i++)
+        {
+            double dx = path[i].Easting - path[i - 1].Easting;
+            double dy = path[i].Northing - path[i - 1].Northing;
+            length += System.Math.Sqrt(dx * dx + dy * dy);
+        }
+        return length;
+    }
+
+    /// <summary>
+    /// Convert Vec2 preview line to Vec3 with calculated headings
+    /// </summary>
+    private List<Models.Base.Vec3>? ConvertPreviewToVec3(List<Models.Base.Vec2>? preview)
+    {
+        if (preview == null || preview.Count < 3) return null;
+
+        var result = new List<Models.Base.Vec3>(preview.Count);
+        for (int i = 0; i < preview.Count; i++)
+        {
+            double heading;
+            if (i == 0)
+            {
+                double dx = preview[1].Easting - preview[0].Easting;
+                double dy = preview[1].Northing - preview[0].Northing;
+                heading = System.Math.Atan2(dx, dy);
+            }
+            else if (i == preview.Count - 1)
+            {
+                double dx = preview[i].Easting - preview[i - 1].Easting;
+                double dy = preview[i].Northing - preview[i - 1].Northing;
+                heading = System.Math.Atan2(dx, dy);
+            }
+            else
+            {
+                double dx = preview[i + 1].Easting - preview[i - 1].Easting;
+                double dy = preview[i + 1].Northing - preview[i - 1].Northing;
+                heading = System.Math.Atan2(dx, dy);
+            }
+            result.Add(new Models.Base.Vec3(preview[i].Easting, preview[i].Northing, heading));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Clip the headland polygon at the line defined by the two selected points.
+    /// The result is an open polyline (not closed polygon).
+    /// </summary>
+    private void ClipHeadlandAtLine(List<Models.Base.Vec3> headland)
+    {
+        if (_headlandPoint1Position == null || _headlandPoint2Position == null)
+        {
+            StatusMessage = "No clip line defined";
+            return;
+        }
+
+        var clipStart = _headlandPoint1Position.Value;
+        var clipEnd = _headlandPoint2Position.Value;
+
+        Console.WriteLine($"[Headland] Clipping at line from ({clipStart.Easting:F1}, {clipStart.Northing:F1}) to ({clipEnd.Easting:F1}, {clipEnd.Northing:F1})");
+
+        // Find where the clip line intersects the headland polygon
+        var intersections = new List<(int segmentIndex, double t, Models.Base.Vec2 point)>();
+
+        for (int i = 0; i < headland.Count; i++)
+        {
+            int nextI = (i + 1) % headland.Count;
+            var p1 = new Models.Base.Vec2(headland[i].Easting, headland[i].Northing);
+            var p2 = new Models.Base.Vec2(headland[nextI].Easting, headland[nextI].Northing);
+
+            // Find intersection of segment (p1, p2) with infinite line through (clipStart, clipEnd)
+            if (LineSegmentIntersectsLine(p1, p2, clipStart, clipEnd, out double t, out var intersectPoint))
+            {
+                intersections.Add((i, t, intersectPoint));
+            }
+        }
+
+        Console.WriteLine($"[Headland] Found {intersections.Count} intersections with clip line");
+
+        if (intersections.Count < 2)
+        {
+            StatusMessage = "Clip line doesn't cross headland properly";
+            return;
+        }
+
+        // Sort intersections by segment index, then t
+        intersections.Sort((a, b) =>
+        {
+            int cmp = a.segmentIndex.CompareTo(b.segmentIndex);
+            return cmp != 0 ? cmp : a.t.CompareTo(b.t);
+        });
+
+        // Take first two intersections - these define where to cut
+        var cut1 = intersections[0];
+        var cut2 = intersections[1];
+
+        // Build both possible paths (forward and backward around the polygon)
+        var forwardPath = BuildClipPath(headland, cut1, cut2, true);
+        var backwardPath = BuildClipPath(headland, cut1, cut2, false);
+
+        // Choose path based on mode:
+        // - Curve mode (left button): take the LONGER path (follows the curve around)
+        // - Line mode (right button): take the SHORTER path (direct cut)
+        List<Models.Base.Vec3> clippedHeadland;
+        if (IsHeadlandCurveMode)
+        {
+            // Curve mode: take the longer path
+            clippedHeadland = forwardPath.Count >= backwardPath.Count ? forwardPath : backwardPath;
+            Console.WriteLine($"[Headland] Curve mode: taking longer path ({clippedHeadland.Count} points)");
+        }
+        else
+        {
+            // Line mode: take the shorter path
+            clippedHeadland = forwardPath.Count <= backwardPath.Count ? forwardPath : backwardPath;
+            Console.WriteLine($"[Headland] Line mode: taking shorter path ({clippedHeadland.Count} points)");
+        }
+
+        // Recalculate headings for the clipped line
+        for (int i = 0; i < clippedHeadland.Count; i++)
+        {
+            double heading;
+            if (clippedHeadland.Count < 2)
+            {
+                heading = 0;
+            }
+            else if (i == 0)
+            {
+                double dx = clippedHeadland[1].Easting - clippedHeadland[0].Easting;
+                double dy = clippedHeadland[1].Northing - clippedHeadland[0].Northing;
+                heading = System.Math.Atan2(dx, dy);
+            }
+            else if (i == clippedHeadland.Count - 1)
+            {
+                double dx = clippedHeadland[i].Easting - clippedHeadland[i - 1].Easting;
+                double dy = clippedHeadland[i].Northing - clippedHeadland[i - 1].Northing;
+                heading = System.Math.Atan2(dx, dy);
+            }
+            else
+            {
+                double dx = clippedHeadland[i + 1].Easting - clippedHeadland[i - 1].Easting;
+                double dy = clippedHeadland[i + 1].Northing - clippedHeadland[i - 1].Northing;
+                heading = System.Math.Atan2(dx, dy);
+            }
+            clippedHeadland[i] = new Models.Base.Vec3(clippedHeadland[i].Easting, clippedHeadland[i].Northing, heading);
+        }
+
+        Console.WriteLine($"[Headland] Clipped headland has {clippedHeadland.Count} points");
+
+        // Set the clipped headland
+        CurrentHeadlandLine = clippedHeadland;
+        HeadlandPreviewLine = null;
+        HasHeadland = true;
+        IsHeadlandOn = true;
+
+        // Clear selection
+        ClearHeadlandPointSelection();
+
+        StatusMessage = $"Headland clipped with {clippedHeadland.Count} points";
+    }
+
+    /// <summary>
+    /// Check if line segment (p1, p2) intersects the infinite line through (lineA, lineB)
+    /// Returns the t parameter (0-1) along the segment and the intersection point
+    /// </summary>
+    private bool LineSegmentIntersectsLine(
+        Models.Base.Vec2 p1, Models.Base.Vec2 p2,
+        Models.Base.Vec2 lineA, Models.Base.Vec2 lineB,
+        out double t, out Models.Base.Vec2 intersection)
+    {
+        t = 0;
+        intersection = new Models.Base.Vec2(0, 0);
+
+        // Segment direction
+        double dx = p2.Easting - p1.Easting;
+        double dy = p2.Northing - p1.Northing;
+
+        // Line direction
+        double ldx = lineB.Easting - lineA.Easting;
+        double ldy = lineB.Northing - lineA.Northing;
+
+        // Cross product of directions
+        double cross = dx * ldy - dy * ldx;
+
+        if (System.Math.Abs(cross) < 1e-10)
+        {
+            // Parallel lines
+            return false;
+        }
+
+        // Vector from line start to segment start
+        double qpx = p1.Easting - lineA.Easting;
+        double qpy = p1.Northing - lineA.Northing;
+
+        // Calculate t (parameter along segment)
+        t = (qpx * ldy - qpy * ldx) / (-cross);
+
+        // Only accept if intersection is on the segment (0 <= t <= 1)
+        if (t < 0 || t > 1)
+        {
+            return false;
+        }
+
+        // Calculate intersection point
+        intersection = new Models.Base.Vec2(
+            p1.Easting + t * dx,
+            p1.Northing + t * dy);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Build a path along the headland polygon between two cut points.
+    /// </summary>
+    /// <param name="headland">The headland polygon points</param>
+    /// <param name="cut1">First cut point (segment index, t parameter, intersection point)</param>
+    /// <param name="cut2">Second cut point (segment index, t parameter, intersection point)</param>
+    /// <param name="forward">If true, traverse forward from cut1 to cut2; if false, traverse backward</param>
+    /// <returns>List of points forming the path between cut points</returns>
+    private List<Models.Base.Vec3> BuildClipPath(
+        List<Models.Base.Vec3> headland,
+        (int segmentIndex, double t, Models.Base.Vec2 point) cut1,
+        (int segmentIndex, double t, Models.Base.Vec2 point) cut2,
+        bool forward)
+    {
+        var path = new List<Models.Base.Vec3>();
+        int n = headland.Count;
+
+        // Start with cut1 intersection point
+        path.Add(new Models.Base.Vec3(cut1.point.Easting, cut1.point.Northing, 0));
+
+        if (forward)
+        {
+            // Forward: go from cut1 to cut2 in increasing index order
+            // Start at the vertex after cut1's segment
+            int startVertex = (cut1.segmentIndex + 1) % n;
+
+            // End at the vertex at or before cut2's segment
+            // If cut2 is on the segment from vertex i to i+1, we include vertices up to i
+            int endVertex = cut2.segmentIndex;
+
+            // Handle wrap-around
+            int current = startVertex;
+            int iterations = 0;
+            int maxIterations = n + 1; // Safety limit
+
+            while (current != (endVertex + 1) % n && iterations < maxIterations)
+            {
+                path.Add(headland[current]);
+                current = (current + 1) % n;
+                iterations++;
+
+                // If we've gone all the way around, break
+                if (current == startVertex && iterations > 0)
+                    break;
+            }
+        }
+        else
+        {
+            // Backward: go from cut1 to cut2 in decreasing index order
+            // Start at the vertex at cut1's segment (the start of that segment)
+            int startVertex = cut1.segmentIndex;
+
+            // End at the vertex after cut2's segment
+            int endVertex = (cut2.segmentIndex + 1) % n;
+
+            // Handle wrap-around going backward
+            int current = startVertex;
+            int iterations = 0;
+            int maxIterations = n + 1; // Safety limit
+
+            while (current != (endVertex - 1 + n) % n && iterations < maxIterations)
+            {
+                path.Add(headland[current]);
+                current = (current - 1 + n) % n;
+                iterations++;
+
+                // If we've gone all the way around, break
+                if (current == startVertex && iterations > 0)
+                    break;
+            }
+        }
+
+        // End with cut2 intersection point
+        path.Add(new Models.Base.Vec3(cut2.point.Easting, cut2.point.Northing, 0));
+
+        Console.WriteLine($"[Headland] BuildClipPath(forward={forward}): {path.Count} points, cut1 seg={cut1.segmentIndex}, cut2 seg={cut2.segmentIndex}");
+
+        return path;
     }
 }
 

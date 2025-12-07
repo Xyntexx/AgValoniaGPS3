@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using AgValoniaGPS.Models;
+using AgValoniaGPS.Models.Base;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Views.Controls;
 
@@ -152,5 +153,21 @@ public class MapService : IMapService
     public void ClearBackground()
     {
         _mapControl?.ClearBackground();
+    }
+
+    // Headland visualization
+    public void SetHeadlandLine(IReadOnlyList<Vec3>? headlandPoints)
+    {
+        _mapControl?.SetHeadlandLine(headlandPoints);
+    }
+
+    public void SetHeadlandPreview(IReadOnlyList<Vec2>? previewPoints)
+    {
+        _mapControl?.SetHeadlandPreview(previewPoints);
+    }
+
+    public void SetHeadlandVisible(bool visible)
+    {
+        _mapControl?.SetHeadlandVisible(visible);
     }
 }

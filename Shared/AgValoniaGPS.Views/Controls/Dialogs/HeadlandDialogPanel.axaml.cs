@@ -1,0 +1,208 @@
+using System;
+using System.ComponentModel;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Threading;
+using AgValoniaGPS.ViewModels;
+using AgValoniaGPS.Models;
+
+namespace AgValoniaGPS.Views.Controls.Dialogs;
+
+public partial class HeadlandDialogPanel : UserControl
+{
+    private DrawingContextMapControl? _mapControl;
+    private MainViewModel? _viewModel;
+
+    public HeadlandDialogPanel()
+    {
+        InitializeComponent();
+
+        // Subscribe to DataContext changes to hook up ViewModel
+        DataContextChanged += OnDataContextChanged;
+
+        // Get map control reference after visual tree is built
+        AttachedToVisualTree += OnAttachedToVisualTree;
+    }
+
+    private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        _mapControl = this.FindControl<DrawingContextMapControl>("HeadlandMapControl");
+        Console.WriteLine($"[HeadlandDialogPanel] AttachedToVisualTree - MapControl found: {_mapControl != null}");
+
+        // Subscribe to map click events for point selection
+        if (_mapControl != null)
+        {
+            _mapControl.MapClicked += OnMapClicked;
+        }
+
+        // If we already have a ViewModel, sync now
+        if (_viewModel != null)
+        {
+            SyncMapWithViewModel(_viewModel);
+        }
+    }
+
+    private void OnMapClicked(object? sender, MapClickEventArgs e)
+    {
+        Console.WriteLine($"[HeadlandDialogPanel] Map clicked at ({e.Easting:F1}, {e.Northing:F1})");
+        _viewModel?.HandleHeadlandMapClick(e.Easting, e.Northing);
+    }
+
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        // Unsubscribe from old ViewModel
+        if (_viewModel != null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        _viewModel = DataContext as MainViewModel;
+
+        if (_viewModel != null)
+        {
+            Console.WriteLine($"[HeadlandDialogPanel] DataContext set to MainViewModel");
+
+            // Subscribe to property changes
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+            // Initial sync if map control is ready
+            if (_mapControl != null)
+            {
+                SyncMapWithViewModel(_viewModel);
+            }
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_viewModel == null) return;
+
+        switch (e.PropertyName)
+        {
+            case nameof(MainViewModel.IsHeadlandDialogVisible):
+                if (_viewModel.IsHeadlandDialogVisible)
+                {
+                    Console.WriteLine($"[HeadlandDialogPanel] Dialog opened - syncing map");
+                    // Use Dispatcher to ensure UI is ready
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        SyncMapWithViewModel(_viewModel);
+                        CenterViewOnBoundary(_viewModel);
+                    }, DispatcherPriority.Loaded);
+                }
+                break;
+
+            case nameof(MainViewModel.CurrentBoundary):
+            case nameof(MainViewModel.CurrentHeadlandLine):
+            case nameof(MainViewModel.HeadlandPreviewLine):
+            case nameof(MainViewModel.HeadlandSelectedMarkers):
+            case nameof(MainViewModel.IsHeadlandCurveMode):
+                if (_viewModel.IsHeadlandDialogVisible)
+                {
+                    SyncMapWithViewModel(_viewModel);
+                }
+                break;
+        }
+    }
+
+    private void SyncMapWithViewModel(MainViewModel vm)
+    {
+        if (_mapControl == null)
+        {
+            Console.WriteLine($"[HeadlandDialogPanel] SyncMapWithViewModel - MapControl is null!");
+            return;
+        }
+
+        // Get boundary from the active field via the ViewModel's helper
+        var boundary = vm.CurrentBoundary;
+        var headlandLine = vm.CurrentHeadlandLine;
+        var headlandPreview = vm.HeadlandPreviewLine;
+        var selectionMarkers = vm.HeadlandSelectedMarkers;
+
+        Console.WriteLine($"[HeadlandDialogPanel] SyncMapWithViewModel - Boundary: {boundary != null}, OuterPoints: {boundary?.OuterBoundary?.Points.Count ?? 0}, HeadlandLine: {headlandLine?.Count ?? 0}, Preview: {headlandPreview?.Count ?? 0}, Markers: {selectionMarkers?.Count ?? 0}");
+
+        _mapControl.SetBoundary(boundary);
+        _mapControl.SetHeadlandLine(headlandLine);
+        _mapControl.SetHeadlandPreview(headlandPreview);
+        _mapControl.SetSelectionMarkers(selectionMarkers);
+        _mapControl.SetHeadlandVisible(true);
+
+        // Set clip visualization - either curved path or straight line
+        var clipPath = vm.HeadlandClipPath;
+        var clipLine = vm.HeadlandClipLine;
+
+        if (clipPath != null && clipPath.Count >= 2)
+        {
+            // Curve mode: show path along headland
+            _mapControl.SetClipPath(clipPath);
+            _mapControl.SetClipLine(null, null);
+        }
+        else if (clipLine.HasValue)
+        {
+            // Line mode: show straight clip line
+            _mapControl.SetClipPath(null);
+            _mapControl.SetClipLine(clipLine.Value.Start, clipLine.Value.End);
+        }
+        else
+        {
+            // No selection
+            _mapControl.SetClipPath(null);
+            _mapControl.SetClipLine(null, null);
+        }
+    }
+
+    private void CenterViewOnBoundary(MainViewModel vm)
+    {
+        if (_mapControl == null)
+        {
+            Console.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - MapControl is null!");
+            return;
+        }
+
+        var boundary = vm.CurrentBoundary;
+        if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
+        {
+            Console.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - No valid boundary");
+            return;
+        }
+
+        // Calculate bounding box
+        double minX = double.MaxValue, maxX = double.MinValue;
+        double minY = double.MaxValue, maxY = double.MinValue;
+
+        foreach (var point in boundary.OuterBoundary.Points)
+        {
+            minX = Math.Min(minX, point.Easting);
+            maxX = Math.Max(maxX, point.Easting);
+            minY = Math.Min(minY, point.Northing);
+            maxY = Math.Max(maxY, point.Northing);
+        }
+
+        // Center and calculate zoom to fit
+        double centerX = (minX + maxX) / 2.0;
+        double centerY = (minY + maxY) / 2.0;
+        double width = maxX - minX;
+        double height = maxY - minY;
+
+        // Add padding (20%)
+        double padding = 1.2;
+        double viewSize = Math.Max(width, height) * padding;
+
+        // Calculate zoom (base view is 200m, so zoom = 200 / viewSize)
+        double zoom = viewSize > 0 ? 200.0 / viewSize : 1.0;
+        zoom = Math.Clamp(zoom, 0.1, 10.0);
+
+        Console.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - Center: ({centerX:F1}, {centerY:F1}), Zoom: {zoom:F2}");
+        _mapControl.SetCamera(centerX, centerY, zoom, 0);
+    }
+
+    private void Backdrop_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        // Clicking the backdrop closes the dialog
+        if (_viewModel != null)
+        {
+            _viewModel.CloseHeadlandDialogCommand?.Execute(null);
+        }
+    }
+}

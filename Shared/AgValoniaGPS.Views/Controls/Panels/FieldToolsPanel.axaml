@@ -60,14 +60,14 @@
 
                 <!-- Row 1: Headland, Headland Builder -->
                 <Button Grid.Column="0" Grid.Row="1" Classes="ModernButton" HorizontalAlignment="Stretch" Margin="0,2" Height="44"
-                        ClickMode="Press">
+                        ClickMode="Press" Command="{Binding ShowHeadlandDialogCommand}">
                     <StackPanel Orientation="Horizontal" Spacing="6" IsHitTestVisible="False">
-                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/HeadlandBuild.png" Width="28" Height="28"/>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/HeadlandOn.png" Width="28" Height="28"/>
                         <TextBlock Text="Headland" VerticalAlignment="Center" FontSize="12"/>
                     </StackPanel>
                 </Button>
                 <Button Grid.Column="1" Grid.Row="1" Classes="ModernButton" HorizontalAlignment="Stretch" Margin="0,2" Height="44"
-                        ClickMode="Press">
+                        ClickMode="Press" Command="{Binding ShowHeadlandBuilderCommand}">
                     <StackPanel Orientation="Horizontal" Spacing="6" IsHitTestVisible="False">
                         <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Headache.png" Width="28" Height="28"/>
                         <TextBlock Text="Headland Builder" VerticalAlignment="Center" FontSize="12"/>

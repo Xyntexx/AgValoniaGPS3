@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.Interfaces;
+using AgValoniaGPS.Services.Geometry;
+using AgValoniaGPS.Services.Headland;
 using AgValoniaGPS.ViewModels;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Desktop.Services;
@@ -38,6 +40,10 @@ public static class ServiceCollectionExtensions
 
         // Boundary recording service
         services.AddSingleton<IBoundaryRecordingService, BoundaryRecordingService>();
+
+        // Headland builder services
+        services.AddSingleton<IPolygonOffsetService, PolygonOffsetService>();
+        services.AddSingleton<IHeadlandBuilderService, HeadlandBuilderService>();
 
         // Platform-specific services (Desktop implementations)
         services.AddSingleton<DialogService>();

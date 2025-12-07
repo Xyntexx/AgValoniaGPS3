@@ -52,6 +52,11 @@ public interface ISharedMapControl
     // Boundary recording indicator
     void SetBoundaryOffsetIndicator(bool show, double offsetMeters = 0.0);
 
+    // Headland visualization
+    void SetHeadlandLine(IReadOnlyList<AgValoniaGPS.Models.Base.Vec3>? headlandPoints);
+    void SetHeadlandPreview(IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? previewPoints);
+    void SetHeadlandVisible(bool visible);
+
     // Grid visibility property
     bool IsGridVisible { get; set; }
 }
@@ -71,6 +76,32 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         get => GetValue(IsGridVisibleProperty);
         set => SetValue(IsGridVisibleProperty, value);
     }
+
+    // Avalonia styled property for vehicle visibility (can hide for headland editing)
+    public static readonly StyledProperty<bool> ShowVehicleProperty =
+        AvaloniaProperty.Register<DrawingContextMapControl, bool>(nameof(ShowVehicle), defaultValue: true);
+
+    public bool ShowVehicle
+    {
+        get => GetValue(ShowVehicleProperty);
+        set => SetValue(ShowVehicleProperty, value);
+    }
+
+    // Avalonia styled property to enable click-to-select mode (for headland editing)
+    public static readonly StyledProperty<bool> EnableClickSelectionProperty =
+        AvaloniaProperty.Register<DrawingContextMapControl, bool>(nameof(EnableClickSelection), defaultValue: false);
+
+    public bool EnableClickSelection
+    {
+        get => GetValue(EnableClickSelectionProperty);
+        set => SetValue(EnableClickSelectionProperty, value);
+    }
+
+    /// <summary>
+    /// Event fired when the map is clicked in click-selection mode.
+    /// EventArgs contain the world coordinates (Easting, Northing).
+    /// </summary>
+    public event EventHandler<MapClickEventArgs>? MapClicked;
 
     // Camera/viewport state
     private double _cameraX = 0.0;
@@ -102,6 +133,20 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     private Bitmap? _backgroundImage;
     private double _bgMinX, _bgMaxY, _bgMaxX, _bgMinY; // Geo-reference bounds (local coordinates)
 
+    // Headland data
+    private IReadOnlyList<AgValoniaGPS.Models.Base.Vec3>? _headlandLine;
+    private IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? _headlandPreview;
+    private bool _isHeadlandVisible = true;
+
+    // Selection markers (for headland point selection)
+    private IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? _selectionMarkers;
+
+    // Clip line (for headland clipping - line between two selected points)
+    private (AgValoniaGPS.Models.Base.Vec2 Start, AgValoniaGPS.Models.Base.Vec2 End)? _clipLine;
+
+    // Clip path (for curved headland clipping - follows the headland curve)
+    private IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? _clipPath;
+
     // Pens and brushes (reused for performance)
     private readonly Pen _gridPenMinor;
     private readonly Pen _gridPenMajor;
@@ -113,6 +158,11 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     private readonly IBrush _vehicleBrush;
     private readonly Pen _vehiclePen;
     private readonly IBrush _recordingPointBrush;
+    private readonly Pen _headlandPen;
+    private readonly Pen _headlandPreviewPen;
+    private readonly IBrush _selectionMarkerBrush;
+    private readonly Pen _selectionMarkerPen;
+    private readonly Pen _clipLinePen;
     private IImage? _vehicleImage;
 
     // Render timer
@@ -138,6 +188,11 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _vehicleBrush = new SolidColorBrush(Color.FromRgb(0, 200, 0));
         _vehiclePen = new Pen(Brushes.DarkGreen, 2);
         _recordingPointBrush = new SolidColorBrush(Color.FromRgb(255, 128, 0));
+        _headlandPen = new Pen(new SolidColorBrush(Color.FromRgb(0, 255, 128)), 1.5); // Green headland line
+        _headlandPreviewPen = new Pen(new SolidColorBrush(Color.FromArgb(180, 255, 165, 0)), 1.5); // Semi-transparent orange preview
+        _selectionMarkerBrush = new SolidColorBrush(Color.FromRgb(255, 0, 255)); // Magenta selection markers
+        _selectionMarkerPen = new Pen(Brushes.White, 2); // White outline
+        _clipLinePen = new Pen(Brushes.Red, 3); // Red clip line
 
         // Load vehicle (tractor) image from embedded resources
         LoadVehicleImage();
@@ -195,14 +250,41 @@ public class DrawingContextMapControl : Control, ISharedMapControl
                 DrawBoundary(context);
             }
 
+            // Draw headland line (before recording points and vehicle)
+            if (_isHeadlandVisible && _headlandLine != null && _headlandLine.Count > 2)
+            {
+                DrawHeadlandLine(context);
+            }
+
+            // Draw headland preview (semi-transparent)
+            if (_headlandPreview != null && _headlandPreview.Count > 2)
+            {
+                DrawHeadlandPreview(context);
+            }
+
             // Draw recording points
             if (_recordingPoints != null && _recordingPoints.Count > 0)
             {
                 DrawRecordingPoints(context);
             }
 
-            // Draw vehicle
-            DrawVehicle(context);
+            // Draw selection markers (for headland point selection)
+            if (_selectionMarkers != null && _selectionMarkers.Count > 0)
+            {
+                DrawSelectionMarkers(context);
+            }
+
+            // Draw clip line or clip path (red line between selected points)
+            if (_clipLine.HasValue || (_clipPath != null && _clipPath.Count >= 2))
+            {
+                DrawClipLine(context);
+            }
+
+            // Draw vehicle (can be hidden for headland editing mode)
+            if (ShowVehicle)
+            {
+                DrawVehicle(context);
+            }
 
             // Draw boundary offset indicator
             if (_showBoundaryOffsetIndicator)
@@ -479,6 +561,86 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         }
     }
 
+    private void DrawHeadlandLine(DrawingContext context)
+    {
+        if (_headlandLine == null || _headlandLine.Count < 3) return;
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(_headlandLine[0].Easting, _headlandLine[0].Northing), false);
+            for (int i = 1; i < _headlandLine.Count; i++)
+            {
+                ctx.LineTo(new Point(_headlandLine[i].Easting, _headlandLine[i].Northing));
+            }
+            // Close the polygon
+            ctx.LineTo(new Point(_headlandLine[0].Easting, _headlandLine[0].Northing));
+            ctx.EndFigure(false);
+        }
+        context.DrawGeometry(null, _headlandPen, geometry);
+    }
+
+    private void DrawHeadlandPreview(DrawingContext context)
+    {
+        if (_headlandPreview == null || _headlandPreview.Count < 3) return;
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(_headlandPreview[0].Easting, _headlandPreview[0].Northing), false);
+            for (int i = 1; i < _headlandPreview.Count; i++)
+            {
+                ctx.LineTo(new Point(_headlandPreview[i].Easting, _headlandPreview[i].Northing));
+            }
+            // Close the polygon
+            ctx.LineTo(new Point(_headlandPreview[0].Easting, _headlandPreview[0].Northing));
+            ctx.EndFigure(false);
+        }
+        context.DrawGeometry(null, _headlandPreviewPen, geometry);
+    }
+
+    private void DrawSelectionMarkers(DrawingContext context)
+    {
+        if (_selectionMarkers == null || _selectionMarkers.Count == 0) return;
+
+        // Draw large circles at selection points
+        double markerRadius = 4.0; // World units (meters)
+
+        // Use different colors for first (orange) and second (blue) markers
+        var orangeBrush = new SolidColorBrush(Color.FromRgb(255, 165, 0));
+        var blueBrush = new SolidColorBrush(Color.FromRgb(0, 150, 255));
+
+        for (int i = 0; i < _selectionMarkers.Count; i++)
+        {
+            var marker = _selectionMarkers[i];
+            var brush = i == 0 ? orangeBrush : blueBrush;
+            var center = new Point(marker.Easting, marker.Northing);
+            context.DrawEllipse(brush, _selectionMarkerPen, center, markerRadius, markerRadius);
+        }
+    }
+
+    private void DrawClipLine(DrawingContext context)
+    {
+        // Draw curved clip path if available (for curve mode)
+        if (_clipPath != null && _clipPath.Count >= 2)
+        {
+            for (int i = 0; i < _clipPath.Count - 1; i++)
+            {
+                var p1 = new Point(_clipPath[i].Easting, _clipPath[i].Northing);
+                var p2 = new Point(_clipPath[i + 1].Easting, _clipPath[i + 1].Northing);
+                context.DrawLine(_clipLinePen, p1, p2);
+            }
+            return;
+        }
+
+        // Draw straight clip line (for line mode)
+        if (!_clipLine.HasValue) return;
+
+        var start = new Point(_clipLine.Value.Start.Easting, _clipLine.Value.Start.Northing);
+        var end = new Point(_clipLine.Value.End.Easting, _clipLine.Value.End.Northing);
+        context.DrawLine(_clipLinePen, start, end);
+    }
+
     // Mouse event handlers
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -486,6 +648,15 @@ public class DrawingContextMapControl : Control, ISharedMapControl
 
         if (point.Properties.IsLeftButtonPressed)
         {
+            // In click selection mode, fire the MapClicked event instead of panning
+            if (EnableClickSelection)
+            {
+                var worldPos = ScreenToWorld(point.Position.X, point.Position.Y);
+                MapClicked?.Invoke(this, new MapClickEventArgs(worldPos.Easting, worldPos.Northing));
+                e.Handled = true;
+                return;
+            }
+
             _isPanning = true;
             _lastMousePosition = point.Position;
             e.Pointer.Capture(this);
@@ -706,6 +877,44 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _boundaryOffsetMeters = offsetMeters;
     }
 
+    // Headland visualization
+    public void SetHeadlandLine(IReadOnlyList<AgValoniaGPS.Models.Base.Vec3>? headlandPoints)
+    {
+        _headlandLine = headlandPoints;
+    }
+
+    public void SetHeadlandPreview(IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? previewPoints)
+    {
+        _headlandPreview = previewPoints;
+    }
+
+    public void SetHeadlandVisible(bool visible)
+    {
+        _isHeadlandVisible = visible;
+    }
+
+    public void SetSelectionMarkers(IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? markers)
+    {
+        _selectionMarkers = markers;
+    }
+
+    public void SetClipLine(AgValoniaGPS.Models.Base.Vec2? start, AgValoniaGPS.Models.Base.Vec2? end)
+    {
+        if (start.HasValue && end.HasValue)
+        {
+            _clipLine = (start.Value, end.Value);
+        }
+        else
+        {
+            _clipLine = null;
+        }
+    }
+
+    public void SetClipPath(IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? path)
+    {
+        _clipPath = path;
+    }
+
     // Mouse interaction support (for external control)
     public void StartPan(Point position)
     {
@@ -731,5 +940,51 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     {
         _isPanning = false;
         _isRotating = false;
+    }
+
+    /// <summary>
+    /// Convert screen coordinates to world coordinates (Easting, Northing)
+    /// </summary>
+    public (double Easting, double Northing) ScreenToWorld(double screenX, double screenY)
+    {
+        if (Bounds.Width <= 0 || Bounds.Height <= 0)
+            return (_cameraX, _cameraY);
+
+        // Calculate view dimensions
+        double aspect = Bounds.Width / Bounds.Height;
+        double viewWidth = 200.0 * aspect / _zoom;
+        double viewHeight = 200.0 / _zoom;
+
+        // Convert screen position to normalized coordinates (-0.5 to 0.5)
+        double normalizedX = (screenX / Bounds.Width) - 0.5;
+        double normalizedY = 0.5 - (screenY / Bounds.Height); // Flip Y
+
+        // Convert to world offset from camera center
+        double worldOffsetX = normalizedX * viewWidth;
+        double worldOffsetY = normalizedY * viewHeight;
+
+        // Apply rotation
+        double cos = Math.Cos(_rotation);
+        double sin = Math.Sin(_rotation);
+        double rotatedX = worldOffsetX * cos - worldOffsetY * sin;
+        double rotatedY = worldOffsetX * sin + worldOffsetY * cos;
+
+        // Add camera position
+        return (_cameraX + rotatedX, _cameraY + rotatedY);
+    }
+}
+
+/// <summary>
+/// Event arguments for map click events containing world coordinates
+/// </summary>
+public class MapClickEventArgs : EventArgs
+{
+    public double Easting { get; }
+    public double Northing { get; }
+
+    public MapClickEventArgs(double easting, double northing)
+    {
+        Easting = easting;
+        Northing = northing;
     }
 }
