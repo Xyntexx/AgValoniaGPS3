@@ -10,6 +10,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Track;
+using AgValoniaGPS.Models.Configuration;
 
 // For loading embedded resources
 using AssetLoader = Avalonia.Platform.AssetLoader;
@@ -71,6 +72,10 @@ public interface ISharedMapControl
 
     // Auto-pan: keeps vehicle visible by panning map when vehicle nears edge
     bool AutoPanEnabled { get; set; }
+
+    // Section patch visualization
+    void SetSectionPatches(System.Collections.Generic.IReadOnlyList<AgValoniaGPS.Models.QuadStrip>? patches);
+    void ClearSectionPatches();
 }
 
 /// <summary>
@@ -172,6 +177,9 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     private AgValoniaGPS.Models.Track.Track? _nextTrack; // Next track to follow after U-turn
     private bool _isInYouTurn; // When true, current line is dotted, next line is solid
     private AgValoniaGPS.Models.Position? _pendingPointA; // Point A while waiting for Point B
+
+    // Section patch data
+    private IReadOnlyList<AgValoniaGPS.Models.QuadStrip>? _sectionPatches;
 
     // Pens and brushes (reused for performance)
     private readonly Pen _gridPenMinor;
@@ -304,6 +312,14 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             if (_backgroundImage != null)
             {
                 DrawBackgroundImage(context);
+            }
+
+            // Draw section patches (coverage areas) - before grid and boundary
+            if (_sectionPatches != null && _sectionPatches.Count > 0)
+            {
+                // Read configuration for section lines visibility
+                bool drawSectionLines = ConfigurationStore.Instance.Display.SectionLinesVisible;
+                DrawSectionPatches(context, drawSectionLines);
             }
 
             // Draw grid (if visible)
@@ -737,6 +753,59 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             endPt.Northing - halfMarker,
             markerSize, markerSize);
         context.DrawRectangle(endMarkerBrush, null, endRect);
+    }
+
+    private void DrawSectionPatches(DrawingContext context, bool drawSectionLines)
+    {
+        if (_sectionPatches == null || _sectionPatches.Count == 0) return;
+
+        // Draw each quad strip (section patch)
+        foreach (var patch in _sectionPatches)
+        {
+            if (patch.NumberOfQuads < 1) continue;
+
+            // Create brush from ColorRgb with semi-transparency for better visibility
+            var fillBrush = new SolidColorBrush(Color.FromArgb(150, patch.ColorRgb.Red, patch.ColorRgb.Green, patch.ColorRgb.Blue));
+
+            // Create geometry for the quad strip
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+            {
+                // Start figure at first left point
+                var firstLeft = patch.GetLeft(0);
+                ctx.BeginFigure(new Point(firstLeft.Easting, firstLeft.Northing), true);
+
+                // Draw along left side
+                for (int i = 1; i < patch.NumberOfPairs; i++)
+                {
+                    var left = patch.GetLeft(i);
+                    ctx.LineTo(new Point(left.Easting, left.Northing));
+                }
+
+                // Draw along right side (backwards to close the strip)
+                for (int i = patch.NumberOfPairs - 1; i >= 0; i--)
+                {
+                    var right = patch.GetRight(i);
+                    ctx.LineTo(new Point(right.Easting, right.Northing));
+                }
+
+                // Close the figure
+                ctx.EndFigure(true);
+            }
+
+            // Draw filled patch
+            context.DrawGeometry(fillBrush, null, geometry);
+
+            // Draw section lines (dark outline) if enabled
+            if (drawSectionLines)
+            {
+                // Dark gray outline (0.2, 0.2, 0.2 = RGB 51, 51, 51)
+                var outlinePen = new Pen(new SolidColorBrush(Color.FromRgb(51, 51, 51)), 0.3);
+
+                // Draw outline of the patch
+                context.DrawGeometry(null, outlinePen, geometry);
+            }
+        }
     }
 
     private void DrawSelectionMarkers(DrawingContext context)
@@ -1338,6 +1407,17 @@ public class DrawingContextMapControl : Control, ISharedMapControl
 
         // Add camera position
         return (_cameraX + rotatedX, _cameraY + rotatedY);
+    }
+
+    // Section patch visualization
+    public void SetSectionPatches(IReadOnlyList<AgValoniaGPS.Models.QuadStrip>? patches)
+    {
+        _sectionPatches = patches;
+    }
+
+    public void ClearSectionPatches()
+    {
+        _sectionPatches = null;
     }
 }
 
