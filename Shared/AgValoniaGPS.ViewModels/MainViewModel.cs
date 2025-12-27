@@ -29,7 +29,6 @@ public partial class MainViewModel : ReactiveObject
     private readonly INtripClientService _ntripService;
     private readonly AgValoniaGPS.Services.Interfaces.IDisplaySettingsService _displaySettings;
     private readonly AgValoniaGPS.Services.Interfaces.IFieldStatisticsService _fieldStatistics;
-    private readonly AgValoniaGPS.Services.Interfaces.IGpsSimulationService _simulatorService;
     private readonly ISettingsService _settingsService;
     private readonly IDialogService _dialogService;
     private readonly IMapService _mapService;
@@ -48,8 +47,12 @@ public partial class MainViewModel : ReactiveObject
     private readonly IAutoSteerService _autoSteerService;
     private readonly IModuleCommunicationService _moduleCommunicationService;
     private readonly ApplicationState _appState;
-    private readonly DispatcherTimer _simulatorTimer;
-    private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
+
+    /// <summary>
+    /// Simulator ViewModel - exposes simulator UI state and commands.
+    /// Use this for XAML bindings to simulator controls.
+    /// </summary>
+    public SimulatorViewModel Simulator { get; }
 
     /// <summary>
     /// Centralized application state - single source of truth for all runtime state.
@@ -160,7 +163,6 @@ public partial class MainViewModel : ReactiveObject
         _ntripService = ntripService;
         _displaySettings = displaySettings;
         _fieldStatistics = fieldStatistics;
-        _simulatorService = simulatorService;
         _settingsService = settingsService;
         _dialogService = dialogService;
         _mapService = mapService;
@@ -180,6 +182,10 @@ public partial class MainViewModel : ReactiveObject
         _nmeaParser = new NmeaParserService(gpsService);
         _fieldPlaneFileService = new FieldPlaneFileService();
 
+        // Create SimulatorViewModel (handles simulator UI and commands)
+        Simulator = new SimulatorViewModel(simulatorService, settingsService, appState);
+        Simulator.SimulatedGpsDataReceived += OnSimulatorGpsDataReceived;
+
         // Subscribe to events
         _gpsService.GpsDataUpdated += OnGpsDataUpdated;
         _udpService.DataReceived += OnUdpDataReceived;
@@ -189,7 +195,7 @@ public partial class MainViewModel : ReactiveObject
         _ntripService.ConnectionStatusChanged += OnNtripConnectionChanged;
         _ntripService.RtcmDataReceived += OnRtcmDataReceived;
         _fieldService.ActiveFieldChanged += OnActiveFieldChanged;
-        _simulatorService.GpsDataUpdated += OnSimulatorGpsDataUpdated;
+        // Note: Simulator GPS events handled via SimulatorViewModel.SimulatedGpsDataReceived
         _boundaryRecordingService.PointAdded += OnBoundaryPointAdded;
         _boundaryRecordingService.StateChanged += OnBoundaryStateChanged;
         _moduleCommunicationService.AutoSteerToggleRequested += OnAutoSteerToggleRequested;
@@ -201,16 +207,7 @@ public partial class MainViewModel : ReactiveObject
         // Note: NOT subscribing to DisplaySettings events - using direct property access instead
         // to avoid threading issues with ReactiveUI
 
-        // Initialize simulator service with default position (will be updated when GPS gets fix)
-        _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(40.7128, -74.0060)); // Default to NYC coordinates
-        _simulatorService.StepDistance = 0; // Stationary initially
-
-        // Create simulator timer (100ms tick rate, matching WinForms implementation)
-        _simulatorTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(100)
-        };
-        _simulatorTimer.Tick += OnSimulatorTick;
+        // Note: Simulator initialization handled by SimulatorViewModel
 
         // Initialize commands immediately (with MainThreadScheduler they're thread-safe)
         InitializeCommands();
@@ -248,19 +245,13 @@ public partial class MainViewModel : ReactiveObject
         // (setting _displaySettings directly doesn't trigger property change notification)
         this.RaisePropertyChanged(nameof(IsGridOn));
 
-        // Restore simulator settings
+        // Restore simulator settings via SimulatorViewModel
+        Simulator.RestoreSettings();
         if (settings.SimulatorEnabled)
         {
-            // Initialize simulator with saved coordinates
-            _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(
-                settings.SimulatorLatitude,
-                settings.SimulatorLongitude));
-            _simulatorService.StepDistance = settings.SimulatorSpeed;
-
             // Also set Latitude/Longitude so map dialogs work correctly at startup
             Latitude = settings.SimulatorLatitude;
             Longitude = settings.SimulatorLongitude;
-
             Console.WriteLine($"  Restored simulator: {settings.SimulatorLatitude},{settings.SimulatorLongitude}");
         }
     }
@@ -769,49 +760,12 @@ public partial class MainViewModel : ReactiveObject
         }
     }
 
-    // Simulator event handlers
-    private void OnSimulatorTick(object? sender, EventArgs e)
+    /// <summary>
+    /// Handles simulated GPS data from SimulatorViewModel.
+    /// </summary>
+    private void OnSimulatorGpsDataReceived(object? sender, GpsData gpsData)
     {
-        // Call simulator Tick with current steer angle
-        _simulatorService.Tick(SimulatorSteerAngle);
-    }
-
-    private void OnSimulatorGpsDataUpdated(object? sender, GpsSimulationEventArgs e)
-    {
-        var simulatedData = e.Data;
-
-        // Create LocalPlane if not yet created (using simulator's initial position as origin)
-        if (_simulatorLocalPlane == null)
-        {
-            var sharedProps = new AgValoniaGPS.Models.SharedFieldProperties();
-            _simulatorLocalPlane = new AgValoniaGPS.Models.LocalPlane(simulatedData.Position, sharedProps);
-        }
-
-        // Convert WGS84 to local coordinates (Northing/Easting)
-        var localCoord = _simulatorLocalPlane.ConvertWgs84ToGeoCoord(simulatedData.Position);
-
-        // Build Position object with both WGS84 and UTM coordinates
-        var position = new AgValoniaGPS.Models.Position
-        {
-            Latitude = simulatedData.Position.Latitude,
-            Longitude = simulatedData.Position.Longitude,
-            Altitude = simulatedData.Altitude,
-            Easting = localCoord.Easting,
-            Northing = localCoord.Northing,
-            Heading = simulatedData.HeadingDegrees,
-            Speed = simulatedData.SpeedKmh / 3.6  // Convert km/h to m/s
-        };
-
-        // Build GpsData object
-        var gpsData = new AgValoniaGPS.Models.GpsData
-        {
-            CurrentPosition = position,
-            FixQuality = 4,  // RTK Fixed
-            SatellitesInUse = simulatedData.SatellitesTracked,
-            Hdop = simulatedData.Hdop,
-            DifferentialAge = 0.0,
-            Timestamp = DateTime.Now
-        };
+        var position = gpsData.CurrentPosition;
 
         // Directly update GPS service (bypasses NMEA parsing like WinForms version does)
         _gpsService.UpdateGpsData(gpsData);
@@ -2227,27 +2181,14 @@ public partial class MainViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isFieldToolsPanelVisible, value);
     }
 
-    private bool _isSimulatorPanelVisible;
     public bool IsSimulatorPanelVisible
     {
-        get => _isSimulatorPanelVisible;
-        set => this.RaiseAndSetIfChanged(ref _isSimulatorPanelVisible, value);
+        get => Simulator.IsPanelVisible;
+        set => Simulator.IsPanelVisible = value;
     }
 
-    // Panel-based dialog data properties (visibility now managed by State.UI)
-    private decimal? _simCoordsDialogLatitude;
-    public decimal? SimCoordsDialogLatitude
-    {
-        get => _simCoordsDialogLatitude;
-        set => this.RaiseAndSetIfChanged(ref _simCoordsDialogLatitude, value);
-    }
-
-    private decimal? _simCoordsDialogLongitude;
-    public decimal? SimCoordsDialogLongitude
-    {
-        get => _simCoordsDialogLongitude;
-        set => this.RaiseAndSetIfChanged(ref _simCoordsDialogLongitude, value);
-    }
+    // Note: SimCoordsDialogLatitude/Longitude delegate to Simulator.DialogLatitude/Longitude
+    // (see delegating properties in Simulator section below)
 
     // Field Selection Dialog properties (visibility managed by State.UI)
     public ObservableCollection<FieldSelectionItem> AvailableFields { get; } = new();
@@ -3346,130 +3287,61 @@ public partial class MainViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _currentFieldName, value);
     }
 
-    // Simulator properties
-    private bool _isSimulatorEnabled;
+    // Simulator properties - delegate to SimulatorViewModel
     public bool IsSimulatorEnabled
     {
-        get => _isSimulatorEnabled;
+        get => Simulator.IsEnabled;
         set
         {
-            if (this.RaiseAndSetIfChanged(ref _isSimulatorEnabled, value))
-            {
-                // Update centralized state
-                State.Simulator.IsEnabled = value;
-
-                // Save to settings
-                _settingsService.Settings.SimulatorEnabled = value;
-                _settingsService.Save();
-
-                // Start or stop simulator timer based on enabled state
-                if (value)
-                {
-                    // Initialize simulator with saved coordinates
-                    var settings = _settingsService.Settings;
-                    _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(
-                        settings.SimulatorLatitude,
-                        settings.SimulatorLongitude));
-
-                    State.Simulator.IsRunning = true;
-                    _simulatorTimer.Start();
-                    StatusMessage = $"Simulator ON at {settings.SimulatorLatitude:F8}, {settings.SimulatorLongitude:F8}";
-                }
-                else
-                {
-                    State.Simulator.IsRunning = false;
-                    _simulatorTimer.Stop();
-                    StatusMessage = "Simulator OFF";
-                }
-            }
+            Simulator.IsEnabled = value;
+            StatusMessage = value ? "Simulator ON" : "Simulator OFF";
         }
     }
 
-    private double _simulatorSteerAngle;
     public double SimulatorSteerAngle
     {
-        get => _simulatorSteerAngle;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _simulatorSteerAngle, value);
-            State.Simulator.SteerAngle = value;
-            this.RaisePropertyChanged(nameof(SimulatorSteerAngleDisplay)); // Notify display property
-            if (_isSimulatorEnabled)
-            {
-                _simulatorService.SteerAngle = value;
-            }
-        }
+        get => Simulator.SteerAngle;
+        set => Simulator.SteerAngle = value;
     }
 
-    public string SimulatorSteerAngleDisplay => $"Steer Angle: {_simulatorSteerAngle:F1}°";
+    public string SimulatorSteerAngleDisplay => Simulator.SteerAngleDisplay;
 
-    private double _simulatorSpeedKph;
-    /// <summary>
-    /// Simulator speed in kph. Range: -10 to +25 kph.
-    /// Converts to/from stepDistance using formula: speedKph = stepDistance * 40
-    /// </summary>
     public double SimulatorSpeedKph
     {
-        get => _simulatorSpeedKph;
-        set
-        {
-            // Clamp to valid range
-            value = Math.Max(-10, Math.Min(25, value));
-            this.RaiseAndSetIfChanged(ref _simulatorSpeedKph, value);
-            State.Simulator.Speed = value;
-            State.Simulator.TargetSpeed = value;
-            this.RaisePropertyChanged(nameof(SimulatorSpeedDisplay));
-            if (_isSimulatorEnabled)
-            {
-                // Convert kph to stepDistance: stepDistance = speedKph / 40
-                _simulatorService.StepDistance = value / 40.0;
-                // Disable acceleration when manually setting speed
-                _simulatorService.IsAcceleratingForward = false;
-                _simulatorService.IsAcceleratingBackward = false;
-            }
-        }
+        get => Simulator.SpeedKph;
+        set => Simulator.SpeedKph = value;
     }
 
-    public string SimulatorSpeedDisplay => $"Speed: {_simulatorSpeedKph:F1} kph";
+    public string SimulatorSpeedDisplay => Simulator.SpeedDisplay;
+
+    public decimal? SimCoordsDialogLatitude
+    {
+        get => Simulator.DialogLatitude;
+        set => Simulator.DialogLatitude = value;
+    }
+
+    public decimal? SimCoordsDialogLongitude
+    {
+        get => Simulator.DialogLongitude;
+        set => Simulator.DialogLongitude = value;
+    }
 
     /// <summary>
     /// Set new starting coordinates for the simulator
     /// </summary>
     public void SetSimulatorCoordinates(double latitude, double longitude)
     {
-        // Reinitialize simulator with new coordinates
-        _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(latitude, longitude));
-        _simulatorService.StepDistance = 0;
-
-        // Clear LocalPlane so it will be recreated with new origin on next GPS data update
-        _simulatorLocalPlane = null;
-
-        // Reset steering
-        SimulatorSteerAngle = 0;
-
-        // Save coordinates to settings so they persist
-        _settingsService.Settings.SimulatorLatitude = latitude;
-        _settingsService.Settings.SimulatorLongitude = longitude;
-        var saved = _settingsService.Save();
-
-        // Also update the Latitude/Longitude properties directly so that
-        // the map boundary dialog uses the correct coordinates even if
-        // the simulator timer hasn't ticked yet
+        Simulator.SetCoordinates(latitude, longitude);
+        // Also update the Latitude/Longitude properties directly for map dialog
         Latitude = latitude;
         Longitude = longitude;
-
-        StatusMessage = saved
-            ? $"Simulator reset to {latitude:F8}, {longitude:F8}"
-            : $"Reset to {latitude:F8}, {longitude:F8} (save failed: {_settingsService.GetSettingsFilePath()})";
+        StatusMessage = $"Simulator reset to {latitude:F8}, {longitude:F8}";
     }
 
     /// <summary>
     /// Get current simulator position
     /// </summary>
-    public AgValoniaGPS.Models.Wgs84 GetSimulatorPosition()
-    {
-        return _simulatorService.CurrentPosition;
-    }
+    public AgValoniaGPS.Models.Wgs84 GetSimulatorPosition() => Simulator.GetPosition();
 
     // Navigation settings properties (forwarded from service)
     public bool IsGridOn
