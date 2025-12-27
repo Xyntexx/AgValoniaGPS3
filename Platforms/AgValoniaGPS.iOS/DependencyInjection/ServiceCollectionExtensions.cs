@@ -73,6 +73,7 @@ public static class ServiceCollectionExtensions
         // iOS-specific services
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<IMapService, MapService>();
+        services.AddSingleton<IAudioService, AudioService>();
 
         return services;
     }

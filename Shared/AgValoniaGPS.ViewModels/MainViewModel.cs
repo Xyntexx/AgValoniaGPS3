@@ -45,6 +45,7 @@ public partial class MainViewModel : ReactiveObject
     private readonly IAutoSteerService _autoSteerService;
     private readonly IModuleCommunicationService _moduleCommunicationService;
     private readonly ApplicationState _appState;
+    private readonly IAudioService _audioService;
 
     /// <summary>
     /// Simulator ViewModel - exposes simulator UI state and commands.
@@ -101,6 +102,7 @@ public partial class MainViewModel : ReactiveObject
     private double _speed;
     private int _satelliteCount;
     private string _fixQuality = "No Fix";
+    private bool _wasRtkFixed = false; // Track previous RTK status for audio
     private string _networkStatus = "Disconnected";
     private double _currentFps;
     private double _gpsToPgnLatencyMs;
@@ -155,7 +157,8 @@ public partial class MainViewModel : ReactiveObject
         IConfigurationService configurationService,
         IAutoSteerService autoSteerService,
         IModuleCommunicationService moduleCommunicationService,
-        ApplicationState appState)
+        ApplicationState appState,
+        IAudioService audioService)
     {
         _udpService = udpService;
         _gpsService = gpsService;
@@ -177,6 +180,7 @@ public partial class MainViewModel : ReactiveObject
         _autoSteerService = autoSteerService;
         _moduleCommunicationService = moduleCommunicationService;
         _appState = appState;
+        _audioService = audioService;
         _nmeaParser = new NmeaParserService(gpsService);
         _fieldPlaneFileService = new FieldPlaneFileService();
 
@@ -202,7 +206,7 @@ public partial class MainViewModel : ReactiveObject
         BoundaryRecording.RecordingFinished += OnBoundaryRecordingFinished;
 
         // Create SectionControlViewModel (handles section master and individual section states)
-        Sections = new SectionControlViewModel(moduleCommunicationService, appState);
+        Sections = new SectionControlViewModel(moduleCommunicationService, appState, audioService);
         Sections.StatusMessageChanged += (s, msg) => StatusMessage = msg;
 
         // Create TrackManagementViewModel (handles track list, AB line creation, nudge)
@@ -473,7 +477,27 @@ public partial class MainViewModel : ReactiveObject
     public string FixQuality
     {
         get => _fixQuality;
-        set => this.RaiseAndSetIfChanged(ref _fixQuality, value);
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _fixQuality, value))
+            {
+                // Track RTK status changes for audio feedback
+                bool isRtkNow = value.Contains("RTK");
+
+                if (_wasRtkFixed && !isRtkNow)
+                {
+                    // RTK was fixed, now lost
+                    _audioService?.PlayRtkLost();
+                }
+                else if (!_wasRtkFixed && isRtkNow)
+                {
+                    // RTK was lost, now recovered
+                    _audioService?.PlayRtkRecovered();
+                }
+
+                _wasRtkFixed = isRtkNow;
+            }
+        }
     }
 
     public string NetworkStatus
@@ -604,7 +628,17 @@ public partial class MainViewModel : ReactiveObject
     public bool IsAutoSteerEngaged
     {
         get => _isAutoSteerEngaged;
-        set => this.RaiseAndSetIfChanged(ref _isAutoSteerEngaged, value);
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isAutoSteerEngaged, value))
+            {
+                // Play audio feedback when AutoSteer state changes
+                if (value)
+                    _audioService?.PlayAutoSteerOn();
+                else
+                    _audioService?.PlayAutoSteerOff();
+            }
+        }
     }
 
     /// <summary>

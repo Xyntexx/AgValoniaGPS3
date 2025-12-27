@@ -15,16 +15,19 @@ public class SectionControlViewModel : ReactiveObject
 {
     private readonly IModuleCommunicationService _moduleCommunicationService;
     private readonly ApplicationState _appState;
+    private readonly IAudioService? _audioService;
 
     // Events for MainViewModel to subscribe to
     public event EventHandler<string>? StatusMessageChanged;
 
     public SectionControlViewModel(
         IModuleCommunicationService moduleCommunicationService,
-        ApplicationState appState)
+        ApplicationState appState,
+        IAudioService? audioService = null)
     {
         _moduleCommunicationService = moduleCommunicationService;
         _appState = appState;
+        _audioService = audioService;
 
         // Subscribe to module communication events
         _moduleCommunicationService.SectionMasterToggleRequested += OnSectionMasterToggleRequested;
@@ -86,49 +89,64 @@ public class SectionControlViewModel : ReactiveObject
     public bool Section1Active
     {
         get => _section1Active;
-        set => this.RaiseAndSetIfChanged(ref _section1Active, value);
+        set => SetSectionState(ref _section1Active, value);
+    }
+
+    /// <summary>
+    /// Helper method to set section state and play audio feedback
+    /// </summary>
+    private void SetSectionState(ref bool field, bool value)
+    {
+        if (this.RaiseAndSetIfChanged(ref field, value) && IsMasterOn)
+        {
+            // Play audio feedback when section state changes (only if master is on)
+            if (value)
+                _audioService?.PlaySectionOn();
+            else
+                _audioService?.PlaySectionOff();
+        }
     }
 
     private bool _section2Active;
     public bool Section2Active
     {
         get => _section2Active;
-        set => this.RaiseAndSetIfChanged(ref _section2Active, value);
+        set => SetSectionState(ref _section2Active, value);
     }
 
     private bool _section3Active;
     public bool Section3Active
     {
         get => _section3Active;
-        set => this.RaiseAndSetIfChanged(ref _section3Active, value);
+        set => SetSectionState(ref _section3Active, value);
     }
 
     private bool _section4Active;
     public bool Section4Active
     {
         get => _section4Active;
-        set => this.RaiseAndSetIfChanged(ref _section4Active, value);
+        set => SetSectionState(ref _section4Active, value);
     }
 
     private bool _section5Active;
     public bool Section5Active
     {
         get => _section5Active;
-        set => this.RaiseAndSetIfChanged(ref _section5Active, value);
+        set => SetSectionState(ref _section5Active, value);
     }
 
     private bool _section6Active;
     public bool Section6Active
     {
         get => _section6Active;
-        set => this.RaiseAndSetIfChanged(ref _section6Active, value);
+        set => SetSectionState(ref _section6Active, value);
     }
 
     private bool _section7Active;
     public bool Section7Active
     {
         get => _section7Active;
-        set => this.RaiseAndSetIfChanged(ref _section7Active, value);
+        set => SetSectionState(ref _section7Active, value);
     }
 
     #endregion

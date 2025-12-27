@@ -75,6 +75,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDialogService>(sp => sp.GetRequiredService<DialogService>());
         services.AddSingleton<MapService>();
         services.AddSingleton<IMapService>(sp => sp.GetRequiredService<MapService>());
+        services.AddSingleton<AudioService>();
+        services.AddSingleton<IAudioService>(sp => sp.GetRequiredService<AudioService>());
 
         return services;
     }
