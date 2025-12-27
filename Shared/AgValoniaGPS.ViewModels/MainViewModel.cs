@@ -59,6 +59,12 @@ public partial class MainViewModel : ReactiveObject
     public YouTurnViewModel YouTurn { get; }
 
     /// <summary>
+    /// Boundary Recording ViewModel - handles boundary recording state and settings.
+    /// Use this for boundary recording functionality.
+    /// </summary>
+    public BoundaryRecordingViewModel BoundaryRecording { get; }
+
+    /// <summary>
     /// Centralized application state - single source of truth for all runtime state.
     /// Use this for new code. Existing properties will gradually migrate to use State.
     /// </summary>
@@ -185,6 +191,11 @@ public partial class MainViewModel : ReactiveObject
         YouTurn.SteerAngleChanged += (s, angle) => SimulatorSteerAngle = angle;
         YouTurn.TurnCompleted += (s, e) => { /* Additional turn completion logic if needed */ };
 
+        // Create BoundaryRecordingViewModel (handles boundary recording state and events)
+        BoundaryRecording = new BoundaryRecordingViewModel(boundaryRecordingService, mapService, appState);
+        BoundaryRecording.StatusMessageChanged += (s, msg) => StatusMessage = msg;
+        BoundaryRecording.RecordingFinished += OnBoundaryRecordingFinished;
+
         // Subscribe to events
         _gpsService.GpsDataUpdated += OnGpsDataUpdated;
         _udpService.DataReceived += OnUdpDataReceived;
@@ -195,8 +206,7 @@ public partial class MainViewModel : ReactiveObject
         _ntripService.RtcmDataReceived += OnRtcmDataReceived;
         _fieldService.ActiveFieldChanged += OnActiveFieldChanged;
         // Note: Simulator GPS events handled via SimulatorViewModel.SimulatedGpsDataReceived
-        _boundaryRecordingService.PointAdded += OnBoundaryPointAdded;
-        _boundaryRecordingService.StateChanged += OnBoundaryStateChanged;
+        // Note: Boundary recording events handled via BoundaryRecordingViewModel
         _moduleCommunicationService.AutoSteerToggleRequested += OnAutoSteerToggleRequested;
         _moduleCommunicationService.SectionMasterToggleRequested += OnSectionMasterToggleRequested;
 
@@ -748,15 +758,14 @@ public partial class MainViewModel : ReactiveObject
         Northing = data.CurrentPosition.Northing;
         Heading = data.CurrentPosition.Heading;
 
-        // Add boundary point if recording is active
-        if (_boundaryRecordingService.IsRecording)
+        // Add boundary point if recording is active (through BoundaryRecordingViewModel)
+        if (BoundaryRecording.IsRecording)
         {
             double headingRadians = data.CurrentPosition.Heading * Math.PI / 180.0;
-            var (offsetEasting, offsetNorthing) = CalculateOffsetPosition(
+            BoundaryRecording.AddPoint(
                 data.CurrentPosition.Easting,
                 data.CurrentPosition.Northing,
                 headingRadians);
-            _boundaryRecordingService.AddPoint(offsetEasting, offsetNorthing, headingRadians);
         }
     }
 
@@ -930,60 +939,13 @@ public partial class MainViewModel : ReactiveObject
         _mapService.SetActiveTrack(currentGuidanceTrack);
     }
 
-
-    // Boundary recording event handlers
-    private void OnBoundaryPointAdded(object? sender, BoundaryPointAddedEventArgs e)
+    /// <summary>
+    /// Handle boundary recording finished - save the boundary to the field.
+    /// </summary>
+    private void OnBoundaryRecordingFinished(object? sender, Boundary? boundary)
     {
-        Dispatcher.UIThread.Post(() =>
-        {
-            // Update centralized state
-            State.BoundaryRec.PointCount = e.TotalPoints;
-            State.BoundaryRec.AreaHectares = e.AreaHectares;
-            State.BoundaryRec.AreaAcres = e.AreaHectares * 2.47105;
-
-            // Legacy properties
-            BoundaryPointCount = e.TotalPoints;
-            BoundaryAreaHectares = e.AreaHectares;
-
-            // Update map with recorded points
-            var points = _boundaryRecordingService.RecordedPoints
-                .Select(p => (p.Easting, p.Northing))
-                .ToList();
-            _mapService.SetRecordingPoints(points);
-        });
-    }
-
-    private void OnBoundaryStateChanged(object? sender, BoundaryRecordingStateChangedEventArgs e)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            // Update centralized state
-            State.BoundaryRec.IsRecording = e.State == BoundaryRecordingState.Recording;
-            State.BoundaryRec.IsPaused = e.State == BoundaryRecordingState.Paused;
-            State.BoundaryRec.PointCount = e.PointCount;
-            State.BoundaryRec.AreaHectares = e.AreaHectares;
-            State.BoundaryRec.AreaAcres = e.AreaHectares * 2.47105;
-
-            // Legacy properties
-            IsBoundaryRecording = e.State == BoundaryRecordingState.Recording;
-            BoundaryPointCount = e.PointCount;
-            BoundaryAreaHectares = e.AreaHectares;
-
-            // Clear recording points from map when recording becomes idle
-            if (e.State == BoundaryRecordingState.Idle)
-            {
-                State.BoundaryRec.RecordingPoints.Clear();
-                _mapService.ClearRecordingPoints();
-            }
-            // Update map with current recorded points (for undo/clear operations)
-            else if (e.PointCount >= 0)
-            {
-                var points = _boundaryRecordingService.RecordedPoints
-                    .Select(p => (p.Easting, p.Northing))
-                    .ToList();
-                _mapService.SetRecordingPoints(points);
-            }
-        });
+        // This is handled via StopBoundaryRecordingCommand which saves the boundary
+        // Additional post-recording logic can be added here if needed
     }
 
     private void OnAutoSteerToggleRequested(object? sender, AutoSteerToggleEventArgs e)
@@ -1885,114 +1847,95 @@ public partial class MainViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _selectedBoundaryIndex, value);
     }
 
-    private bool _isBoundaryPlayerPanelVisible;
+    /// <summary>
+    /// Delegates to BoundaryRecording.IsPlayerPanelVisible for backward compatibility.
+    /// </summary>
     public bool IsBoundaryPlayerPanelVisible
     {
-        get => _isBoundaryPlayerPanelVisible;
-        set => this.RaiseAndSetIfChanged(ref _isBoundaryPlayerPanelVisible, value);
-    }
-
-    private bool _isBoundaryRecording;
-    public bool IsBoundaryRecording
-    {
-        get => _isBoundaryRecording;
-        set => this.RaiseAndSetIfChanged(ref _isBoundaryRecording, value);
-    }
-
-    private int _boundaryPointCount;
-    public int BoundaryPointCount
-    {
-        get => _boundaryPointCount;
-        set => this.RaiseAndSetIfChanged(ref _boundaryPointCount, value);
-    }
-
-    private double _boundaryAreaHectares;
-    public double BoundaryAreaHectares
-    {
-        get => _boundaryAreaHectares;
-        set => this.RaiseAndSetIfChanged(ref _boundaryAreaHectares, value);
-    }
-
-    // Boundary Player settings
-    private bool _isBoundarySectionControlOn;
-    public bool IsBoundarySectionControlOn
-    {
-        get => _isBoundarySectionControlOn;
-        set
-        {
-            if (this.RaiseAndSetIfChanged(ref _isBoundarySectionControlOn, value) != value) return;
-            StatusMessage = value ? "Boundary records when section is on" : "Boundary section control off";
-        }
-    }
-
-    private bool _isDrawRightSide = true;
-    public bool IsDrawRightSide
-    {
-        get => _isDrawRightSide;
-        set
-        {
-            if (this.RaiseAndSetIfChanged(ref _isDrawRightSide, value) != value) return;
-            StatusMessage = value ? "Boundary on right side" : "Boundary on left side";
-            UpdateBoundaryOffsetIndicator();
-        }
-    }
-
-    private bool _isDrawAtPivot;
-    public bool IsDrawAtPivot
-    {
-        get => _isDrawAtPivot;
-        set
-        {
-            if (this.RaiseAndSetIfChanged(ref _isDrawAtPivot, value) != value) return;
-            StatusMessage = value ? "Recording at pivot point" : "Recording at tool";
-        }
-    }
-
-    private double _boundaryOffset;
-    public double BoundaryOffset
-    {
-        get => _boundaryOffset;
-        set
-        {
-            if (this.RaiseAndSetIfChanged(ref _boundaryOffset, value) != value) return;
-            UpdateBoundaryOffsetIndicator();
-        }
-    }
-
-    private void UpdateBoundaryOffsetIndicator()
-    {
-        // Apply direction: right side = positive offset, left side = negative offset
-        double signedOffsetMeters = _boundaryOffset / 100.0;
-        if (!_isDrawRightSide)
-        {
-            signedOffsetMeters = -signedOffsetMeters;
-        }
-        _mapService.SetBoundaryOffsetIndicator(true, signedOffsetMeters);
+        get => BoundaryRecording.IsPlayerPanelVisible;
+        set => BoundaryRecording.IsPlayerPanelVisible = value;
     }
 
     /// <summary>
-    /// Calculate offset position perpendicular to heading.
-    /// Returns (easting, northing) with offset applied.
+    /// Delegates to BoundaryRecording.IsRecording for backward compatibility.
     /// </summary>
-    private (double easting, double northing) CalculateOffsetPosition(double easting, double northing, double headingRadians)
+    public bool IsBoundaryRecording
     {
-        if (_boundaryOffset == 0)
-            return (easting, northing);
+        get => BoundaryRecording.IsRecording;
+        set { } // Read-only, state managed by BoundaryRecordingViewModel
+    }
 
-        // Offset in meters (input is cm)
-        double offsetMeters = _boundaryOffset / 100.0;
+    /// <summary>
+    /// Delegates to BoundaryRecording.PointCount for backward compatibility.
+    /// </summary>
+    public int BoundaryPointCount
+    {
+        get => BoundaryRecording.PointCount;
+        set { } // Read-only, state managed by BoundaryRecordingViewModel
+    }
 
-        // If drawing on left side, negate the offset
-        if (!_isDrawRightSide)
-            offsetMeters = -offsetMeters;
+    /// <summary>
+    /// Delegates to BoundaryRecording.AreaHectares for backward compatibility.
+    /// </summary>
+    public double BoundaryAreaHectares
+    {
+        get => BoundaryRecording.AreaHectares;
+        set { } // Read-only, state managed by BoundaryRecordingViewModel
+    }
 
-        // Calculate perpendicular offset (90 degrees to the right of heading)
-        double perpAngle = headingRadians + Math.PI / 2.0;
+    // Boundary Player settings - delegate to BoundaryRecording
+    /// <summary>
+    /// Delegates to BoundaryRecording.IsSectionControlOn for backward compatibility.
+    /// </summary>
+    public bool IsBoundarySectionControlOn
+    {
+        get => BoundaryRecording.IsSectionControlOn;
+        set => BoundaryRecording.IsSectionControlOn = value;
+    }
 
-        double offsetEasting = easting + offsetMeters * Math.Sin(perpAngle);
-        double offsetNorthing = northing + offsetMeters * Math.Cos(perpAngle);
+    /// <summary>
+    /// Delegates to BoundaryRecording.IsDrawRightSide for backward compatibility.
+    /// </summary>
+    public bool IsDrawRightSide
+    {
+        get => BoundaryRecording.IsDrawRightSide;
+        set => BoundaryRecording.IsDrawRightSide = value;
+    }
 
-        return (offsetEasting, offsetNorthing);
+    /// <summary>
+    /// Delegates to BoundaryRecording.IsDrawAtPivot for backward compatibility.
+    /// </summary>
+    public bool IsDrawAtPivot
+    {
+        get => BoundaryRecording.IsDrawAtPivot;
+        set => BoundaryRecording.IsDrawAtPivot = value;
+    }
+
+    /// <summary>
+    /// Delegates to BoundaryRecording.Offset for backward compatibility.
+    /// </summary>
+    public double BoundaryOffset
+    {
+        get => BoundaryRecording.Offset;
+        set => BoundaryRecording.Offset = value;
+    }
+
+    /// <summary>
+    /// Delegates to BoundaryRecording.IsOffsetRight for backward compatibility.
+    /// </summary>
+    public bool IsBoundaryOffsetRight
+    {
+        get => BoundaryRecording.IsOffsetRight;
+        set => BoundaryRecording.IsOffsetRight = value;
+    }
+
+    /// <summary>
+    /// Delegates to BoundaryRecording.IsAntennaMode for backward compatibility.
+    /// </summary>
+    public bool IsBoundaryAntennaMode
+    {
+        get => BoundaryRecording.IsAntennaMode;
+        set => BoundaryRecording.IsAntennaMode = value;
     }
 
     // Configuration Dialog properties

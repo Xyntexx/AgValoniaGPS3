@@ -34,31 +34,20 @@ public partial class MainViewModel
             }
         });
 
-        // Boundary Recording Commands
-        StartBoundaryRecordingCommand = new RelayCommand(() =>
-        {
-            _boundaryRecordingService.StartRecording(BoundaryType.Outer);
-            StatusMessage = "Boundary recording started";
-        });
+        // Boundary Recording Commands - delegate to BoundaryRecordingViewModel
+        StartBoundaryRecordingCommand = BoundaryRecording.StartRecordingCommand;
 
-        PauseBoundaryRecordingCommand = new RelayCommand(() =>
-        {
-            if (_boundaryRecordingService.IsRecording)
-            {
-                _boundaryRecordingService.PauseRecording();
-                StatusMessage = "Boundary recording paused";
-            }
-        });
+        PauseBoundaryRecordingCommand = BoundaryRecording.PauseRecordingCommand;
 
         StopBoundaryRecordingCommand = new RelayCommand(() =>
         {
-            if (!_boundaryRecordingService.IsRecording)
+            if (!BoundaryRecording.IsActive)
             {
                 StatusMessage = "No recording in progress";
                 return;
             }
 
-            var boundary = _boundaryRecordingService.FinishRecording();
+            var boundary = BoundaryRecording.FinishRecording();
             if (boundary != null && IsFieldOpen && !string.IsNullOrEmpty(CurrentFieldName))
             {
                 var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
@@ -71,8 +60,6 @@ public partial class MainViewModel
             {
                 StatusMessage = "Recording finished but no boundary created";
             }
-
-            IsBoundaryPlayerPanelVisible = false;
         });
 
         UndoBoundaryPointCommand = new RelayCommand(() =>
@@ -81,21 +68,15 @@ public partial class MainViewModel
             StatusMessage = "Undo point - not yet implemented";
         });
 
-        ClearBoundaryCommand = new RelayCommand(() =>
-        {
-            _boundaryRecordingService.ClearPoints();
-            StatusMessage = "Boundary points cleared";
-        });
+        ClearBoundaryCommand = BoundaryRecording.ClearPointsCommand;
 
         AddBoundaryPointCommand = new RelayCommand(() =>
         {
-            if (_boundaryRecordingService.IsRecording)
+            if (BoundaryRecording.IsRecording)
             {
-                // Add point at current GPS position
+                // Add point at current GPS position (offset handled by BoundaryRecordingViewModel)
                 double headingRadians = Heading * Math.PI / 180.0;
-                var (offsetEasting, offsetNorthing) = CalculateOffsetPosition(Easting, Northing, headingRadians);
-                _boundaryRecordingService.AddPoint(offsetEasting, offsetNorthing, headingRadians);
-                StatusMessage = $"Point added ({_boundaryRecordingService.PointCount} total)";
+                BoundaryRecording.AddPoint(Easting, Northing, headingRadians);
             }
         });
 
@@ -388,41 +369,17 @@ public partial class MainViewModel
 
             // Hide boundary panel, show the player panel
             IsBoundaryPanelVisible = false;
-            IsBoundaryPlayerPanelVisible = true;
 
-            // Initialize recording service for a new boundary (paused state)
-            _boundaryRecordingService.StartRecording(BoundaryType.Outer);
-            _boundaryRecordingService.PauseRecording();
-
-            StatusMessage = "Drive around the field boundary. Click Record to start.";
+            // Start drive-around session (through BoundaryRecordingViewModel)
+            BoundaryRecording.StartDriveAroundSession();
         });
 
-        // Recording player panel commands
-        ToggleRecordingCommand = new RelayCommand(() =>
-        {
-            if (_boundaryRecordingService.IsPaused)
-            {
-                _boundaryRecordingService.ResumeRecording();
-                StatusMessage = "Recording resumed";
-            }
-            else if (_boundaryRecordingService.IsRecording)
-            {
-                _boundaryRecordingService.PauseRecording();
-                StatusMessage = "Recording paused";
-            }
-        });
+        // Recording player panel commands - delegate to BoundaryRecordingViewModel
+        ToggleRecordingCommand = BoundaryRecording.ToggleRecordingCommand;
 
-        ToggleBoundaryLeftRightCommand = new RelayCommand(() =>
-        {
-            IsBoundaryOffsetRight = !IsBoundaryOffsetRight;
-            StatusMessage = IsBoundaryOffsetRight ? "Boundary offset: RIGHT" : "Boundary offset: LEFT";
-        });
+        ToggleBoundaryLeftRightCommand = BoundaryRecording.ToggleLeftRightCommand;
 
-        ToggleBoundaryAntennaToolCommand = new RelayCommand(() =>
-        {
-            IsBoundaryAntennaMode = !IsBoundaryAntennaMode;
-            StatusMessage = IsBoundaryAntennaMode ? "Using ANTENNA position" : "Using TOOL position";
-        });
+        ToggleBoundaryAntennaToolCommand = BoundaryRecording.ToggleAntennaToolCommand;
 
         ShowBoundaryOffsetDialogCommand = new RelayCommand(() =>
         {
